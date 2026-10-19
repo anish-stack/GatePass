@@ -299,7 +299,7 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                           <span className="text-amber-400 font-bold">
                             -{formatCurrency(pay.totalLateDeduction, true)}
                           </span>
-                          <span className="block text-[10px] text-slate-400">({pay.totalLateMinutes || 0}m late)</span>
+                          <span className="block text-[10px] text-slate-400">({formatMinutesToReadable(pay.totalLateMinutes || 0)} late)</span>
                         </div>
                       ) : (
                         <span className="text-slate-500">₹0</span>
@@ -311,7 +311,7 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                       {(pay.totalOtPay || 0) > 0 ? (
                         <div>
                           <span className="text-sky-400 font-bold">+{formatCurrency(pay.totalOtPay, true)}</span>
-                          <span className="block text-[10px] text-slate-400">({pay.totalOtMinutes || 0}m OT)</span>
+                          <span className="block text-[10px] text-slate-400">({formatMinutesToReadable(pay.totalOtMinutes || 0)} OT)</span>
                         </div>
                       ) : (
                         <span className="text-slate-500">₹0</span>
@@ -449,7 +449,7 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                   <span className="font-mono text-white">{formatCurrency(viewingSlip.baseSalary || 0)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Overtime ({viewingSlip.totalOtMinutes || 0}m):</span>
+                  <span className="text-slate-400">Overtime ({formatMinutesToReadable(viewingSlip.totalOtMinutes || 0)}):</span>
                   <span className="font-mono text-sky-400">+{formatCurrency(viewingSlip.totalOtPay || 0, true)}</span>
                 </div>
                 <div className="flex justify-between font-bold pt-2 border-t border-slate-800 text-white">
@@ -468,12 +468,12 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                   <span className="font-mono text-rose-400">-{formatCurrency(viewingSlip.absentDeduction || 0, true)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Late ({viewingSlip.totalLateMinutes || 0} Mins):</span>
+                  <span className="text-slate-400">Late ({formatMinutesToReadable(viewingSlip.totalLateMinutes || 0)}):</span>
                   <span className="font-mono text-rose-400">-{formatCurrency(viewingSlip.totalLateDeduction || 0, true)}</span>
                 </div>
                 {(viewingSlip.totalEarlyExitDeduction || 0) > 0 && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Early Exit ({viewingSlip.totalEarlyExitMinutes || 0}m):</span>
+                    <span className="text-slate-400">Early Exit ({formatMinutesToReadable(viewingSlip.totalEarlyExitMinutes || 0)}):</span>
                     <span className="font-mono text-rose-400">-{formatCurrency(viewingSlip.totalEarlyExitDeduction || 0, true)}</span>
                   </div>
                 )}

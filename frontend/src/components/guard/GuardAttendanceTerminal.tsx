@@ -36,7 +36,10 @@ import {
   formatMinutesToReadable,
   WORKING_TIME_OPTIONS,
   getWorkingTimeDetails,
+  isWithinCheckInWindow,
+  getCheckInWindow,
 } from '../../utils/timeCalculations';
+import { AttendanceRulesConfig } from '../../types';
 
 interface GuardAttendanceTerminalProps {
   guardSession: CurrentUserSession;
@@ -82,14 +85,17 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
   } | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const [rules, setRules] = useState<AttendanceRulesConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
-      const [w, att] = await Promise.all([
+      const [w, att, r] = await Promise.all([
         ApiService.getWorkers(),
         ApiService.getAttendance({ date: getTodayDateString() }),
+        ApiService.getRules(),
       ]);
+      setRules(r);
       setWorkers(w);
       setAttendanceList(att);
       setLoadError(null);
@@ -118,9 +124,29 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
     return map;
   }, [attendanceList]);
 
+  // Re-evaluate shift windows once per minute
+  const minuteKey = Math.floor(currentTime.getTime() / 60000);
+  const opensBefore = rules?.checkInOpensBeforeMinutes ?? 120;
+
+  /**
+   * Shift visibility: a worker is shown on the gate roster only during his own shift window
+   * (opens `checkInOpensBeforeMinutes` before start, closes at assigned end time),
+   * or if he already has a gate record today (inside factory / checked out).
+   */
+  const shiftWorkers = useMemo(() => {
+    const now = new Date(minuteKey * 60000);
+    return workers.filter(w => {
+      const att = attendanceMap.get(w.id);
+      if (att?.checkInTime) return true;
+      return isWithinCheckInWindow(w.workingTime, now, opensBefore);
+    });
+  }, [workers, attendanceMap, minuteKey, opensBefore]);
+
+  const hiddenOffShift = workers.length - shiftWorkers.length;
+
   // Gate Metrics
   const stats = useMemo(() => {
-    const total = workers.length;
+    const total = shiftWorkers.length;
     let checkedIn = 0;
     let insideFactory = 0;
     let checkedOut = 0;
@@ -149,11 +175,11 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
       lateToday,
       notArrived,
     };
-  }, [workers, attendanceList]);
+  }, [shiftWorkers, attendanceList]);
 
   // Filtered workers list
   const filteredWorkers = useMemo(() => {
-    return workers.filter(worker => {
+    return shiftWorkers.filter(worker => {
       // Working Time filter
       if (selectedWorkingTimeFilter !== 'ALL' && worker.workingTime !== selectedWorkingTimeFilter) {
         return false;
@@ -181,7 +207,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
 
       return true;
     });
-  }, [workers, attendanceMap, activeTab, selectedWorkingTimeFilter, searchQuery]);
+  }, [shiftWorkers, attendanceMap, activeTab, selectedWorkingTimeFilter, searchQuery]);
 
   // Inside Factory Workers
   const insideFactoryWorkers = useMemo(() => {
@@ -203,6 +229,16 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
       setToastMessage({
         type: 'warning',
         text: `Duplicate Check-In Prevented: ${worker.fullName} is already checked in at ${existing.checkInTime}.`,
+      });
+      return;
+    }
+
+    if (!isWithinCheckInWindow(worker.workingTime, new Date(), opensBefore)) {
+      const win = getCheckInWindow(worker.workingTime, new Date(), opensBefore);
+      setToastMessage({
+        type: 'warning',
+        text: `Check-in not allowed now for ${worker.fullName}.`,
+        subText: `Shift ${worker.workingTime} • check-in window ${formatTime12Short(win.opens)} – ${formatTime12Short(win.end)}`,
       });
       return;
     }
@@ -259,12 +295,12 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
     setToastMessage({
       type: 'success',
       text: `Check-In Confirmed for ${worker.fullName} (${worker.employeeId})`,
-      subText: `Recorded at ${savedTime} • Marked by ${guardSession.name} • ${lateMinutes > 0 ? `Late: ${lateMinutes} mins (Deduction will apply on per-minute basis)` : 'On-Time (Present)'}`,
+      subText: `Recorded at ${savedTime} • Marked by ${guardSession.name} • ${lateMinutes > 0 ? `Late: ${formatMinutesToReadable(lateMinutes)} (Deduction will apply on per-minute basis)` : 'On-Time (Present)'}`,
     });
   };
 
   // Confirm Check-Out
-  const handleConfirmCheckOut = async (photoDataUrl: string) => {
+  const handleConfirmCheckOut = async (photoDataUrl: string, overtimeMinutesOverride?: number) => {
     const { worker, existingAttendance } = cameraModalConfig;
     if (!worker || !existingAttendance) return;
 
@@ -278,6 +314,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
       saved = await ApiService.checkOut({
         workerId: worker.id,
         photoDataUrl,
+        overtimeMinutesOverride,
         gateName: guardSession.gate || 'Gate 1 – Main Gate North',
       });
     } catch (err: any) {
@@ -295,7 +332,13 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
     setToastMessage({
       type: 'info',
       text: `Check-Out Recorded for ${worker.fullName} (${worker.employeeId})`,
-      subText: `Marked by ${guardSession.name} at ${savedOutTime} • Saved to backend database.`,
+      subText: `Marked by ${guardSession.name} at ${savedOutTime} • ${
+        saved.overtimeMinutes > 0
+          ? `OT: ${formatMinutesToReadable(saved.overtimeMinutes)}${saved.otManuallyAdjusted ? ' (edited)' : ''}`
+          : saved.earlyExitMinutes > 0
+          ? `Early exit: ${formatMinutesToReadable(saved.earlyExitMinutes)}`
+          : 'No OT'
+      } • Saved.`,
     });
   };
 
@@ -410,7 +453,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
           <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-            Total Workers
+            On-Shift Workers
           </span>
           <div className="flex items-baseline justify-between mt-1">
             <span className="text-2xl font-black text-white">{stats.total}</span>
@@ -492,6 +535,14 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
           )}
         </div>
 
+        {hiddenOffShift > 0 && (
+          <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            {hiddenOffShift} worker{hiddenOffShift === 1 ? '' : 's'} hidden — outside shift check-in window (opens{' '}
+            {formatMinutesToReadable(opensBefore)} before start, closes at duty end).
+          </p>
+        )}
+
         {/* Filter Pills & Working Time Dropdown */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -503,7 +554,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
                   : 'bg-slate-800 text-slate-400 hover:text-white'
               }`}
             >
-              All Workers ({workers.length})
+              On Shift ({shiftWorkers.length})
             </button>
 
             <button
@@ -575,7 +626,9 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
             <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
             <h3 className="text-base font-bold text-slate-200">No Workers Found</h3>
             <p className="text-xs text-slate-500 mt-1">
-              Check search term (Name, Employee ID e.g. EMP-001, or Mobile number).
+              {shiftWorkers.length === 0
+                ? 'No worker shift is open for check-in right now.'
+                : 'Check search term (Name, Employee ID e.g. EMP-001, or Mobile number).'}
             </p>
             <button
               onClick={() => {
@@ -665,7 +718,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
                     <td className="py-3 px-4">
                       {attendance.lateMinutes > 0 ? (
                         <span className="text-xs font-bold text-rose-400 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-800">
-                          +{attendance.lateMinutes}m Late
+                          +{formatMinutesToReadable(attendance.lateMinutes)} Late
                         </span>
                       ) : (
                         <span className="text-xs font-medium text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
@@ -707,11 +760,12 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
           calculatedLateMinutes={cameraModalConfig.calculatedLate}
           existingCheckInDateTime={cameraModalConfig.existingAttendance?.checkInDateTime}
           submitting={submitting}
-          onConfirm={(photo, late) => {
+          otMinimumMinutes={rules?.otMinimumMinutes ?? 30}
+          onConfirm={(photo, late, otOverride) => {
             if (cameraModalConfig.mode === 'CHECK_IN') {
               handleConfirmCheckIn(photo, late);
             } else {
-              handleConfirmCheckOut(photo);
+              handleConfirmCheckOut(photo, otOverride);
             }
           }}
           onClose={() =>

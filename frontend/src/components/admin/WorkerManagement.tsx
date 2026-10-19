@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Worker, WorkingTimeOption, WorkerDocument, WorkerAdvanceSummary, AdvanceTransaction, AdvancePayrollDeduction } from '../../types';
 import { ApiService } from '../../services/api';
+import { WorkerDocumentsModal, WorkerDocumentList, DocumentViewerModal } from './WorkerDocuments';
 import { formatCurrency, WORKING_TIME_OPTIONS } from '../../utils/timeCalculations';
 
 interface WorkerManagementProps {
@@ -44,8 +45,7 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
 
   // Document Viewer Modal State
   const [viewingDocsWorker, setViewingDocsWorker] = useState<Worker | null>(null);
-  const [newDocName, setNewDocName] = useState('');
-  const [newDocType, setNewDocType] = useState<WorkerDocument['type']>('Aadhaar / ID Card');
+  const [viewingDoc, setViewingDoc] = useState<WorkerDocument | null>(null);
 
   // Worker Profile & Advance History Modal State
   const [viewingProfileWorker, setViewingProfileWorker] = useState<Worker | null>(null);
@@ -234,15 +234,8 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
       panNumber: formData.panNumber.trim().toUpperCase(),
       dateOfJoining: editingWorker ? editingWorker.dateOfJoining : new Date().toISOString().slice(0, 10),
       status: formData.status,
-      documents: editingWorker ? editingWorker.documents : [
-        {
-          id: 'doc-init',
-          name: 'Aadhaar Identity Card',
-          type: 'Aadhaar / ID Card',
-          fileUrl: '#',
-          uploadedAt: new Date().toISOString().slice(0, 10),
-        },
-      ],
+      // KYC documents are uploaded separately (real files) from the Docs button
+      documents: editingWorker ? editingWorker.documents : [],
     };
 
     try {
@@ -266,33 +259,6 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
       } catch (err: any) {
         alert(err.message || 'Failed to delete worker.');
       }
-    }
-  };
-
-  const handleAddDocument = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!viewingDocsWorker || !newDocName.trim()) return;
-
-    const newDoc: WorkerDocument = {
-      id: 'doc-' + Date.now(),
-      name: newDocName.trim(),
-      type: newDocType,
-      fileUrl: '#',
-      uploadedAt: new Date().toISOString().slice(0, 10),
-    };
-
-    const updatedWorker: Worker = {
-      ...viewingDocsWorker,
-      documents: [...viewingDocsWorker.documents, newDoc],
-    };
-
-    try {
-      const saved = await ApiService.updateWorker(updatedWorker.id, { documents: updatedWorker.documents });
-      setViewingDocsWorker(saved);
-      setNewDocName('');
-      refreshList();
-    } catch (err: any) {
-      alert(err.message || 'Failed to add document.');
     }
   };
 
@@ -444,7 +410,7 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
                       className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 bg-sky-950/40 hover:bg-sky-950/80 border border-sky-800/50 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      <span>{w.documents?.length || 0} Docs</span>
+                      <span>{(w.documents || []).filter(d => d.hasFile).length} Docs</span>
                     </button>
                   </td>
 
@@ -657,7 +623,7 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
                   <input
                     type="number"
                     min="5000"
-                    step="500"
+                    step="any"
                     required
                     value={formData.monthlySalary}
                     onChange={e => setFormData({ ...formData, monthlySalary: Number(e.target.value) })}
@@ -760,107 +726,15 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
       {/* WORKER DOCUMENTS MODAL                                    */}
       {/* ========================================================= */}
       {viewingDocsWorker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 text-white space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="font-bold text-base text-white">
-                  Worker KYC Documents
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {viewingDocsWorker.fullName} ({viewingDocsWorker.employeeId}) • Working Time: {viewingDocsWorker.workingTime}
-                </p>
-              </div>
-              <button
-                onClick={() => setViewingDocsWorker(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Existing Documents List */}
-            <div className="space-y-2">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                Uploaded Records ({viewingDocsWorker.documents?.length || 0})
-              </span>
-
-              {(!viewingDocsWorker.documents || viewingDocsWorker.documents.length === 0) ? (
-                <p className="text-xs text-slate-500 p-4 bg-slate-950 rounded-lg text-center">
-                  No documents uploaded yet.
-                </p>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {viewingDocsWorker.documents.map(doc => (
-                    <div
-                      key={doc.id}
-                      className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <FileCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                        <div>
-                          <div className="font-medium text-slate-200">{doc.name}</div>
-                          <div className="text-[11px] text-slate-500">
-                            {doc.type} • Uploaded {doc.uploadedAt}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-[11px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                        Verified
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Upload New Document Form */}
-            <form onSubmit={handleAddDocument} className="pt-3 border-t border-slate-800 space-y-3">
-              <span className="text-xs font-semibold text-slate-300 block">
-                Attach New Verification Document
-              </span>
-              
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  required
-                  value={newDocName}
-                  onChange={e => setNewDocName(e.target.value)}
-                  placeholder="Document Name (e.g. Police Verification, Medical Test)"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-                />
-
-                <select
-                  value={newDocType}
-                  onChange={e => setNewDocType(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
-                >
-                  <option value="Aadhaar / ID Card">Aadhaar / ID Card</option>
-                  <option value="PAN Card">PAN Card</option>
-                  <option value="Employment Contract">Employment Contract</option>
-                  <option value="Medical Fitness">Medical Fitness Certificate</option>
-                  <option value="Bank Passbook">Bank Passbook Copy</option>
-                  <option value="Other">Other Certificate</option>
-                </select>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Upload & Verify Document</span>
-              </button>
-            </form>
-
-            <button
-              onClick={() => setViewingDocsWorker(null)}
-              className="w-full py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-medium cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
-        </div>
+        <WorkerDocumentsModal
+          worker={viewingDocsWorker}
+          onClose={() => setViewingDocsWorker(null)}
+          onUpdated={updated => {
+            setViewingDocsWorker(updated);
+            setWorkers(prev => prev.map(w => (w.id === updated.id ? updated : w)));
+            onDataChanged();
+          }}
+        />
       )}
 
       {/* ========================================================= */}
@@ -933,7 +807,7 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
                 }`}
               >
-                Documents ({viewingProfileWorker.documents?.length || 0})
+                Documents ({(viewingProfileWorker.documents || []).filter(d => d.hasFile).length})
               </button>
 
               <button
@@ -1021,32 +895,13 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
                   </span>
                 </div>
 
-                {(!viewingProfileWorker.documents || viewingProfileWorker.documents.length === 0) ? (
-                  <p className="text-xs text-slate-500 p-6 bg-slate-950 rounded-xl text-center border border-slate-800">
-                    No documents uploaded yet for this worker.
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-56 overflow-y-auto">
-                    {viewingProfileWorker.documents.map(doc => (
-                      <div
-                        key={doc.id}
-                        className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <FileCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <div>
-                            <div className="font-semibold text-white">{doc.name}</div>
-                            <div className="text-[11px] text-slate-400 font-mono">
-                              {doc.type} • Uploaded {doc.uploadedAt}
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                          Verified
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                <WorkerDocumentList
+                  worker={viewingProfileWorker}
+                  onView={setViewingDoc}
+                  emptyText="No documents uploaded yet for this worker."
+                />
+                {viewingDoc && (
+                  <DocumentViewerModal worker={viewingProfileWorker} doc={viewingDoc} onClose={() => setViewingDoc(null)} />
                 )}
               </div>
             )}

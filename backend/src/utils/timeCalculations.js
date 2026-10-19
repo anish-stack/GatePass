@@ -123,20 +123,35 @@ function calculateCheckOutMetrics(checkInDate, checkOutDate, workingTime) {
   };
 }
 function formatMinutesToReadable(minutes) {
-  if (!minutes || minutes <= 0) return "0 Minutes";
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${m} Minutes`;
-  if (m === 0) return `${h} ${h === 1 ? "Hour" : "Hours"}`;
-  return `${h} ${h === 1 ? "Hour" : "Hours"} ${m} Minutes`;
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  if (total === 0) return "0 min";
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} hr`;
+  return `${h} hr ${m} min`;
 }
 function formatMinutesToDuration(minutes) {
-  if (!minutes || minutes <= 0) return "0m";
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
+  return formatMinutesToReadable(minutes);
+}
+function applyOtThreshold(overtimeMinutes, minimumMinutes = 30) {
+  const ot = Math.max(0, Math.floor(overtimeMinutes || 0));
+  return ot >= Math.max(0, minimumMinutes || 0) ? ot : 0;
+}
+function getCheckInWindow(workingTime, date = new Date(), opensBeforeMinutes = 120) {
+  const d = getWorkingTimeDetails(workingTime);
+  const [sh, sm] = d.startTime24.split(":").map(Number);
+  const [eh, em] = d.endTime24.split(":").map(Number);
+  const start = new Date(date);
+  start.setHours(sh, sm, 0, 0);
+  const end = new Date(date);
+  end.setHours(eh, em, 0, 0);
+  const opens = new Date(start.getTime() - Math.max(0, opensBeforeMinutes || 0) * 6e4);
+  return { opens, start, end };
+}
+function isWithinCheckInWindow(workingTime, now = new Date(), opensBeforeMinutes = 120) {
+  const w = getCheckInWindow(workingTime, now, opensBeforeMinutes);
+  return now >= w.opens && now < w.end;
 }
 function formatCurrency(amount, showDecimals = false) {
   const safeAmount = typeof amount === "number" && !isNaN(amount) ? amount : 0;
@@ -200,6 +215,9 @@ function calculateSalaryBreakdown({
 }
 export {
   WORKING_TIME_OPTIONS,
+  applyOtThreshold,
+  getCheckInWindow,
+  isWithinCheckInWindow,
   calculateCheckOutMetrics,
   calculateLateMinutes,
   calculateSalaryBreakdown,

@@ -57,6 +57,10 @@ const WorkerDocumentSchema = new Schema(
     type: String,
     fileUrl: String,
     uploadedAt: String,
+    fileName: String,
+    mimeType: String,
+    size: Number,
+    hasFile: Boolean,
   },
   { _id: false }
 );
@@ -115,6 +119,8 @@ const AttendanceSchema = new Schema(
     totalWorkingMinutes: { type: Number, default: 0 },
     earlyExitMinutes: { type: Number, default: 0 },
     overtimeMinutes: { type: Number, default: 0 },
+    otCalculatedMinutes: Number,
+    otManuallyAdjusted: Boolean,
     status: {
       type: String,
       enum: ['PRESENT', 'PRESENT - LATE', 'PRESENT + OT', 'COMPLETED', 'ABSENT', 'NOT_ARRIVED'],
@@ -139,6 +145,8 @@ const RulesSchema = new Schema(
     gracePeriodMinutes: { type: Number, default: 0 },
     otRateMultiplier: { type: Number, default: 1 },
     requireCheckOutPhoto: { type: Boolean, default: true },
+    otMinimumMinutes: { type: Number, default: 30 },
+    checkInOpensBeforeMinutes: { type: Number, default: 120 },
   },
   { ...baseOptions, strict: false }
 );
@@ -248,6 +256,20 @@ const AuditLogSchema = new Schema(
   baseOptions
 );
 
+// ================= WORKER DOCUMENT FILE (binary stored separately) =================
+const WorkerFileSchema = new Schema(
+  {
+    id: idField, // same as document id
+    workerId: { type: String, required: true, index: true },
+    mimeType: { type: String, required: true },
+    fileName: String,
+    size: Number,
+    data: { type: Buffer, required: true },
+    createdAt: String,
+  },
+  { versionKey: false }
+);
+
 // ================= COUNTER (ordering sequence) =================
 const CounterSchema = new Schema({ _id: String, value: { type: Number, default: 0 } }, { versionKey: false });
 
@@ -261,6 +283,7 @@ export const Advance = model('Advance', AdvanceSchema);
 export const AdvanceDeduction = model('AdvanceDeduction', AdvanceDeductionSchema);
 export const AuditLog = model('AuditLog', AuditLogSchema);
 export const Counter = model('Counter', CounterSchema);
+export const WorkerFile = model('WorkerFile', WorkerFileSchema);
 
 export async function nextSeq(name) {
   const c = await Counter.findByIdAndUpdate(name, { $inc: { value: 1 } }, { new: true, upsert: true });

@@ -13,6 +13,7 @@ import {
   AdvanceDeduction,
   AuditLog,
   Counter,
+  WorkerFile,
 } from '../models/index.js';
 import { generateInitialSeedPayroll } from './payroll.service.js';
 import { env } from '../config/env.js';
@@ -54,6 +55,7 @@ export async function seedDatabase() {
     AdvanceDeduction.deleteMany({}),
     AuditLog.deleteMany({}),
     Counter.deleteMany({}),
+    WorkerFile.deleteMany({}),
   ]);
 
   // Guards: hash seed passwords
@@ -64,7 +66,8 @@ export async function seedDatabase() {
 
   // Workers keep original order (push semantics -> ascending seq, seeds negative)
   const n = seed.workers.length;
-  await Worker.insertMany(seed.workers.map((w, i) => ({ ...w, seq: i - n })));
+  // Seed has no real files -> start with empty KYC documents
+  await Worker.insertMany(seed.workers.map((w, i) => ({ ...w, documents: [], seq: i - n })));
 
   // Attendance / audit: newest-first semantics (unshift) -> descending seq
   await Attendance.insertMany(seed.attendance.map((a, i) => ({ ...a, seq: -i })));

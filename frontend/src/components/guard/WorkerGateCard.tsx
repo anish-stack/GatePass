@@ -1,7 +1,9 @@
 import React from 'react';
 import { LogIn, LogOut, CheckCircle2, Clock, ShieldCheck, AlertCircle, Eye } from 'lucide-react';
 import { Worker, AttendanceRecord } from '../../types';
-import { getWorkingTimeDetails } from '../../utils/timeCalculations';
+import { getWorkingTimeDetails,
+  formatMinutesToReadable,
+} from '../../utils/timeCalculations';
 
 interface WorkerGateCardProps {
   worker: Worker;
@@ -114,7 +116,7 @@ export const WorkerGateCard: React.FC<WorkerGateCardProps> = ({
               </span>
               {attendanceToday?.lateMinutes && attendanceToday.lateMinutes > 0 ? (
                 <span className="text-[10px] text-rose-400 font-bold bg-rose-950/80 px-1 rounded border border-rose-800">
-                  +{attendanceToday.lateMinutes}m Late
+                  +{formatMinutesToReadable(attendanceToday.lateMinutes)} Late
                 </span>
               ) : null}
             </div>
@@ -126,7 +128,7 @@ export const WorkerGateCard: React.FC<WorkerGateCardProps> = ({
               </span>
               {attendanceToday?.overtimeMinutes && attendanceToday.overtimeMinutes > 0 ? (
                 <span className="text-[10px] text-amber-300 font-bold bg-amber-950/80 px-1 rounded border border-amber-800">
-                  +{attendanceToday.overtimeMinutes}m OT
+                  +{formatMinutesToReadable(attendanceToday.overtimeMinutes)} OT
                 </span>
               ) : null}
             </div>

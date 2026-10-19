@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { AttendanceRulesConfig } from '../../types';
 import { ApiService } from '../../services/api';
+import { DurationInput } from '../common/DurationInput';
 import { WORKING_TIME_OPTIONS } from '../../utils/timeCalculations';
 
 interface AttendanceRulesConfigProps {
@@ -26,6 +27,8 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
     gracePeriodMinutes: 0,
     otRateMultiplier: 1,
     requireCheckOutPhoto: true,
+    otMinimumMinutes: 30,
+    checkInOpensBeforeMinutes: 120,
   });
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -168,6 +171,21 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
                 Default: 0 mins. Late deduction is calculated on exact actual late minutes (Per Minute Salary × Late Minutes).
               </span>
             </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                Check-In Window Opens Before Shift Start
+              </label>
+              <DurationInput
+                value={rules.checkInOpensBeforeMinutes ?? 120}
+                maxHours={12}
+                onChange={v => setRules({ ...rules, checkInOpensBeforeMinutes: v })}
+              />
+              <span className="text-[11px] text-slate-400 mt-1 block">
+                Gate terminal shows a worker only during his shift: from this time before start until his assigned end time.
+                After duty end, workers not checked in are hidden and check-in is blocked.
+              </span>
+            </div>
           </div>
 
           {/* RIGHT: OVERTIME & CAMERA VERIFICATION */}
@@ -192,6 +210,22 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
               />
               <span className="text-[11px] text-slate-400 mt-1 block">
                 1.0x (normal per-minute rate) or 1.5x. Overtime starts ONLY after that particular worker's assigned normal Working End Time.
+              </span>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                Minimum Extra Time to Count as OT
+              </label>
+              <DurationInput
+                value={rules.otMinimumMinutes ?? 30}
+                maxHours={10}
+                accent="amber"
+                onChange={v => setRules({ ...rules, otMinimumMinutes: v })}
+              />
+              <span className="text-[11px] text-slate-400 mt-1 block">
+                Exit within this time after duty end = no OT (e.g. 10–15 min). Above it, full extra time counts as OT.
+                Guard/Admin can still edit OT manually at check-out.
               </span>
             </div>
 

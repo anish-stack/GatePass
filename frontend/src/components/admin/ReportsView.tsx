@@ -17,7 +17,9 @@ import {
 } from 'lucide-react';
 import { ApiService } from '../../services/api';
 import { getCurrentMonth } from '../../utils/dateUtils';
-import { formatCurrency, formatDisplayDate } from '../../utils/timeCalculations';
+import { formatCurrency, formatDisplayDate,
+  formatMinutesToReadable,
+} from '../../utils/timeCalculations';
 import { ReportSummaryMetrics } from '../../types';
 
 interface ReportsViewProps {
@@ -263,7 +265,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
               Total Late Minutes
             </span>
             <span className="text-2xl font-black text-amber-400 font-mono mt-1 block">
-              {summary.totalLateMinutes} mins
+              {formatMinutesToReadable(summary.totalLateMinutes)}
             </span>
             <span className="text-[11px] text-slate-400 block mt-0.5 font-mono">
               Cut: -{formatCurrency(summary.totalLateDeductions, true)}
@@ -287,7 +289,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
               Total Overtime (OT)
             </span>
             <span className="text-2xl font-black text-sky-400 font-mono mt-1 block">
-              {summary.totalOtMinutes} mins
+              {formatMinutesToReadable(summary.totalOtMinutes)}
             </span>
             <span className="text-[11px] text-emerald-400 block mt-0.5 font-mono">
               Pay Added: +{formatCurrency(summary.totalOtPaid, true)}
@@ -404,7 +406,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
                   <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Working Time</th>
                   <th className="py-3 px-4">Check-In Time</th>
-                  <th className="py-3 px-4 text-amber-400">Late Minutes</th>
+                  <th className="py-3 px-4 text-amber-400">Late Time</th>
                   <th className="py-3 px-4 text-rose-400">Late Deduction (Per-Min)</th>
                   <th className="py-3 px-4">Marked By Guard</th>
                   <th className="py-3 px-4">Source</th>
@@ -428,7 +430,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
                       <td className="py-3 px-4 text-xs text-slate-300">{r.department}</td>
                       <td className="py-3 px-4 font-mono text-xs text-emerald-400">{r.workingTime}</td>
                       <td className="py-3 px-4 font-mono text-xs text-white">{r.checkInTime}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-amber-400">+{r.lateMinutes} mins</td>
+                      <td className="py-3 px-4 font-mono font-bold text-amber-400">+{formatMinutesToReadable(r.lateMinutes)}</td>
                       <td className="py-3 px-4 font-mono font-bold text-rose-400">-{formatCurrency(r.deductionAmount, true)}</td>
                       <td className="py-3 px-4 text-xs text-slate-400">
                         <span className="text-slate-200">{r.guardName || '-'}</span> ({r.gate || 'Main Gate'})
@@ -510,7 +512,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
                   <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Working End Time</th>
                   <th className="py-3 px-4">Actual Check-Out</th>
-                  <th className="py-3 px-4 text-sky-400">Overtime Minutes</th>
+                  <th className="py-3 px-4 text-sky-400">Overtime</th>
                   <th className="py-3 px-4 text-emerald-400">OT Pay Added</th>
                   <th className="py-3 px-4">Guard at Gate</th>
                   <th className="py-3 px-4">Source</th>
@@ -534,7 +536,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
                       <td className="py-3 px-4 text-xs text-slate-300">{r.department}</td>
                       <td className="py-3 px-4 font-mono text-xs text-amber-300">{r.workingEndTime}</td>
                       <td className="py-3 px-4 font-mono text-xs text-white">{r.checkOutTime}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-sky-400">+{r.overtimeMinutes} mins OT</td>
+                      <td className="py-3 px-4 font-mono font-bold text-sky-400">+{formatMinutesToReadable(r.overtimeMinutes)} OT</td>
                       <td className="py-3 px-4 font-mono font-bold text-emerald-400">+{formatCurrency(r.otPayAmount, true)}</td>
                       <td className="py-3 px-4 text-xs text-slate-400">
                         <span className="text-slate-200">{r.guardName || '-'}</span> ({r.gate || 'Exit Gate'})
@@ -607,7 +609,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
                         {r.totalLateDeduction > 0 ? (
                           <div>
                             <span className="text-amber-400 font-bold">-{formatCurrency(r.totalLateDeduction, true)}</span>
-                            <span className="block text-[10px] text-slate-400 font-normal">({r.totalLateMinutes}m late)</span>
+                            <span className="block text-[10px] text-slate-400 font-normal">({formatMinutesToReadable(r.totalLateMinutes)} late)</span>
                           </div>
                         ) : (
                           <span className="text-slate-500">₹0</span>
@@ -617,7 +619,7 @@ export const ReportsView: React.FC<ReportsViewProps> = () => {
                         {r.totalOtPay > 0 ? (
                           <div>
                             <span className="text-sky-400 font-bold">+{formatCurrency(r.totalOtPay, true)}</span>
-                            <span className="block text-[10px] text-slate-400 font-normal">({r.totalOtMinutes}m OT)</span>
+                            <span className="block text-[10px] text-slate-400 font-normal">({formatMinutesToReadable(r.totalOtMinutes)} OT)</span>
                           </div>
                         ) : (
                           <span className="text-slate-500">₹0</span>

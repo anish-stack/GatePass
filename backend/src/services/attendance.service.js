@@ -7,7 +7,14 @@ import {
   calculateCheckOutMetrics,
   getWorkingTimeDetails,
   formatTime12,
+  formatTime12Short,
+  formatMinutesToReadable,
+  applyOtThreshold,
+  getCheckInWindow,
 } from '../utils/timeCalculations.js';
+import { getRules } from './rules.service.js';
+
+const MAX_OT_MINUTES = 16 * 60;
 
 export async function getAttendance(filters = {}, { withPhotos = true } = {}) {
   const conds = [];
@@ -46,6 +53,18 @@ export async function recordCheckIn(payload, actor) {
   const existing = await Attendance.findOne({ workerId: worker.id, date: dateStr }).lean();
   if (existing && existing.checkInTime) {
     throw new HttpError(409, `Worker ${worker.fullName} is already checked in today at ${existing.checkInTime}.`);
+  }
+
+  // Check-in allowed only inside worker's shift window (opens X min before start, closes at duty end)
+  const rules = await getRules();
+  if (actor.role === 'GUARD') {
+    const win = getCheckInWindow(worker.workingTime, now, rules.checkInOpensBeforeMinutes);
+    if (now < win.opens) {
+      throw new HttpError(400, `Check-in for ${worker.fullName} opens at ${formatTime12Short(win.opens)} (shift ${worker.workingTime}).`);
+    }
+    if (now >= win.end) {
+      throw new HttpError(400, `Shift ${worker.workingTime} for ${worker.fullName} is over. Check-in closed at ${formatTime12Short(win.end)}.`);
+    }
   }
 
   const workingDetails = getWorkingTimeDetails(worker.workingTime);
@@ -88,7 +107,7 @@ export async function recordCheckIn(payload, actor) {
     actorId: guardId,
     actorName: guardName,
     actionType: 'GUARD_CHECK_IN',
-    details: `Security Guard ${guardName} marked Check-In for ${worker.fullName} (${worker.employeeId}) at ${gateName}. Late Minutes: ${lateMins}. Live Photo captured. Source: live.`,
+    details: `Security Guard ${guardName} marked Check-In for ${worker.fullName} (${worker.employeeId}) at ${gateName}. Late: ${formatMinutesToReadable(lateMins)}. Live Photo captured. Source: live.`,
     targetWorkerId: worker.id,
     targetWorkerName: worker.fullName,
   });
@@ -121,6 +140,24 @@ export async function recordCheckOut(payload, actor) {
   const checkInDate = record.checkInDateTime ? new Date(record.checkInDateTime) : now;
   const metrics = calculateCheckOutMetrics(checkInDate, now, worker.workingTime);
 
+  // OT counts only if exit is >= otMinimumMinutes after duty end (10-15 min late exit = no OT)
+  const rules = await getRules();
+  const calculatedOt = applyOtThreshold(metrics.overtimeMinutes, rules.otMinimumMinutes);
+  metrics.overtimeMinutes = calculatedOt;
+
+  // Optional manual OT edit at checkout (e.g. 1 hr 20 min)
+  let otManuallyAdjusted = false;
+  if (payload.overtimeMinutesOverride !== undefined && payload.overtimeMinutesOverride !== null && payload.overtimeMinutesOverride !== '') {
+    const ov = Math.round(Number(payload.overtimeMinutesOverride));
+    if (isNaN(ov) || ov < 0 || ov > MAX_OT_MINUTES) {
+      throw new HttpError(400, 'Overtime must be between 0 and 16 hours.');
+    }
+    if (ov !== calculatedOt) {
+      metrics.overtimeMinutes = ov;
+      otManuallyAdjusted = true;
+    }
+  }
+
   record.checkOutTime = timeStr;
   record.checkOutDateTime = now.toISOString();
   if (payload.photoDataUrl) {
@@ -132,6 +169,8 @@ export async function recordCheckOut(payload, actor) {
   record.totalWorkingMinutes = metrics.totalWorkingMinutes;
   record.earlyExitMinutes = metrics.earlyExitMinutes;
   record.overtimeMinutes = metrics.overtimeMinutes;
+  record.otCalculatedMinutes = calculatedOt;
+  record.otManuallyAdjusted = otManuallyAdjusted;
   record.status = 'COMPLETED';
   record.updatedAt = now.toISOString();
   record.recordSource = 'live';
@@ -143,7 +182,9 @@ export async function recordCheckOut(payload, actor) {
     actorId: guardId,
     actorName: guardName,
     actionType: 'GUARD_CHECK_OUT',
-    details: `Security Guard ${guardName} marked Check-Out for ${worker.fullName} (${worker.employeeId}). Work Mins: ${metrics.totalWorkingMinutes}, OT: ${metrics.overtimeMinutes}m, Early Exit: ${metrics.earlyExitMinutes}m. Source: live.`,
+    details: `Security Guard ${guardName} marked Check-Out for ${worker.fullName} (${worker.employeeId}). Worked: ${formatMinutesToReadable(metrics.totalWorkingMinutes)}, OT: ${formatMinutesToReadable(metrics.overtimeMinutes)}${
+      otManuallyAdjusted ? ` (manually set, system calculated ${formatMinutesToReadable(calculatedOt)})` : ''
+    }, Early Exit: ${formatMinutesToReadable(metrics.earlyExitMinutes)}. Source: live.`,
     targetWorkerId: worker.id,
     targetWorkerName: worker.fullName,
   });

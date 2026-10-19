@@ -1,4 +1,4 @@
-import { Worker, nextSeq, PUBLIC } from '../models/index.js';
+import { Worker, WorkerFile, nextSeq, PUBLIC } from '../models/index.js';
 import { addAuditLog } from './audit.service.js';
 import { HttpError } from '../utils/httpError.js';
 import { genId } from '../utils/dateUtils.js';
@@ -7,7 +7,8 @@ import { genId } from '../utils/dateUtils.js';
 const GUARD_HIDDEN = '-bankAccountNumber -bankIfsc -aadhaarNumber -panNumber -documents -address';
 
 // Fields clients may never set directly
-const PROTECTED_FIELDS = ['_id', 'seq', 'recordSource'];
+// documents are managed only through the /documents endpoints (real file upload)
+const PROTECTED_FIELDS = ['_id', 'seq', 'recordSource', 'documents'];
 const clean = obj => {
   const copy = { ...obj };
   PROTECTED_FIELDS.forEach(f => delete copy[f]);
@@ -38,7 +39,7 @@ export async function createWorker(workerData, actor) {
     ...data,
     id,
     recordSource: 'live',
-    documents: data.documents || [],
+    documents: [],
     profilePhoto: data.profilePhoto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80',
     monthlySalary: Number(data.monthlySalary) || 15000,
     seq: await nextSeq('worker'),
@@ -91,6 +92,7 @@ export async function deleteWorker(id, actor) {
   if (!worker) return false;
 
   await Worker.deleteOne({ id });
+  await WorkerFile.deleteMany({ workerId: id });
 
   await addAuditLog({
     actorRole: 'ADMIN',
@@ -103,4 +105,113 @@ export async function deleteWorker(id, actor) {
   });
 
   return true;
+}
+
+// ================= KYC DOCUMENTS (real file upload) =================
+export const DOCUMENT_TYPES = [
+  'Aadhaar / ID Card',
+  'PAN Card',
+  'Employment Contract',
+  'Medical Fitness',
+  'Bank Passbook',
+  'Other',
+];
+const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+export async function addWorkerDocument(workerId, { type, fileName, dataUrl }, actor) {
+  const worker = await Worker.findOne({ id: workerId });
+  if (!worker) throw new HttpError(404, 'Worker not found');
+  if (!DOCUMENT_TYPES.includes(type)) throw new HttpError(400, 'Select a valid document type.');
+
+  const m = /^data:([a-z0-9.+/-]+);base64,(.+)$/i.exec(String(dataUrl || ''));
+  if (!m) throw new HttpError(400, 'Please attach a document file (JPG, PNG, WEBP or PDF).');
+  const mimeType = m[1].toLowerCase();
+  if (!ALLOWED_MIME.includes(mimeType)) throw new HttpError(400, 'Only JPG, PNG, WEBP or PDF files are allowed.');
+  const data = Buffer.from(m[2], 'base64');
+  if (!data.length) throw new HttpError(400, 'Attached file is empty.');
+  if (data.length > MAX_FILE_BYTES) throw new HttpError(400, 'File too large. Maximum size is 5 MB.');
+
+  const docId = genId('doc');
+  const now = new Date();
+  const safeName = String(fileName || type).replace(/[^\w.\- ()]/g, '_').slice(0, 120);
+
+  await WorkerFile.create({
+    id: docId,
+    workerId,
+    mimeType,
+    fileName: safeName,
+    size: data.length,
+    data,
+    createdAt: now.toISOString(),
+  });
+
+  worker.documents.push({
+    id: docId,
+    name: type,
+    type,
+    fileUrl: `/api/workers/${workerId}/documents/${docId}/file`,
+    uploadedAt: now.toISOString().slice(0, 10),
+    fileName: safeName,
+    mimeType,
+    size: data.length,
+    hasFile: true,
+  });
+  await worker.save();
+
+  await addAuditLog({
+    actorRole: 'ADMIN',
+    actorId: actor?.id || 'admin',
+    actorName: actor?.name || 'System Admin',
+    actionType: 'WORKER_UPDATED',
+    details: `Document "${type}" (${safeName}) uploaded for ${worker.fullName} (${worker.employeeId}).`,
+    targetWorkerId: worker.id,
+    targetWorkerName: worker.fullName,
+  });
+
+  return getWorkerById(workerId);
+}
+
+export async function getWorkerDocumentFile(workerId, docId) {
+  const file = await WorkerFile.findOne({ id: docId, workerId }).lean();
+  if (!file) throw new HttpError(404, 'Document file not found.');
+  return file;
+}
+
+export async function deleteWorkerDocument(workerId, docId, actor) {
+  const worker = await Worker.findOne({ id: workerId });
+  if (!worker) throw new HttpError(404, 'Worker not found');
+  const doc = worker.documents.find(d => d.id === docId);
+  if (!doc) throw new HttpError(404, 'Document not found.');
+
+  worker.documents = worker.documents.filter(d => d.id !== docId);
+  await worker.save();
+  await WorkerFile.deleteOne({ id: docId, workerId });
+
+  await addAuditLog({
+    actorRole: 'ADMIN',
+    actorId: actor?.id || 'admin',
+    actorName: actor?.name || 'System Admin',
+    actionType: 'WORKER_UPDATED',
+    details: `Document "${doc.type}" removed from ${worker.fullName} (${worker.employeeId}).`,
+    targetWorkerId: worker.id,
+    targetWorkerName: worker.fullName,
+  });
+
+  return getWorkerById(workerId);
+}
+
+/** Remove placeholder documents that never had a real file (old auto "Aadhaar Identity Card" entries) */
+export async function cleanupPlaceholderDocuments() {
+  const workers = await Worker.find({ 'documents.0': { $exists: true } }).select('id documents');
+  let fixed = 0;
+  for (const w of workers) {
+    const real = w.documents.filter(d => d.hasFile === true);
+    if (real.length !== w.documents.length) {
+      w.documents = real;
+      await w.save();
+      fixed += 1;
+    }
+  }
+  if (fixed) console.log(`[Cleanup] Removed placeholder documents from ${fixed} workers`);
 }

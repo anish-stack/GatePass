@@ -24,7 +24,9 @@ import {
   getWorkingTimeDetails,
   calculateCheckOutMetrics,
   formatMinutesToReadable,
+  applyOtThreshold,
 } from '../../utils/timeCalculations';
+import { DurationInput } from '../common/DurationInput';
 
 interface CameraCaptureModalProps {
   mode: 'CHECK_IN' | 'CHECK_OUT';
@@ -34,7 +36,8 @@ interface CameraCaptureModalProps {
   existingCheckInDateTime?: string;
   calculatedLateMinutes?: number;
   submitting?: boolean;
-  onConfirm: (capturedPhotoDataUrl: string, calculatedLateMinutes: number) => void;
+  otMinimumMinutes?: number;
+  onConfirm: (capturedPhotoDataUrl: string, calculatedLateMinutes: number, overtimeMinutesOverride?: number) => void;
   onClose: () => void;
 }
 
@@ -51,9 +54,13 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   existingCheckInDateTime,
   calculatedLateMinutes: initialLate,
   submitting = false,
+  otMinimumMinutes = 30,
   onConfirm,
   onClose,
 }) => {
+  // Manual OT edit at check-out (null = use system calculated OT)
+  const [otEditing, setOtEditing] = useState(false);
+  const [otManual, setOtManual] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -374,7 +381,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
       handleCapturePhoto();
       return;
     }
-    onConfirm(capturedPhoto, lateMins);
+    onConfirm(capturedPhoto, lateMins, mode === 'CHECK_OUT' && otManual !== null ? otManual : undefined);
   };
 
   // Check-Out OT calculation preview
@@ -382,10 +389,14 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
     if (mode !== 'CHECK_OUT') return null;
     const now = new Date();
     const checkInDate = existingCheckInDateTime ? new Date(existingCheckInDateTime) : new Date();
-    return calculateCheckOutMetrics(checkInDate, now, worker.workingTime);
+    const m = calculateCheckOutMetrics(checkInDate, now, worker.workingTime);
+    // OT only counts if exit >= otMinimumMinutes after duty end
+    return { ...m, rawOvertimeMinutes: m.overtimeMinutes, overtimeMinutes: applyOtThreshold(m.overtimeMinutes, otMinimumMinutes) };
     // recompute every second with clock
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, existingCheckInDateTime, worker.workingTime, currentTimeStr]);
+  }, [mode, existingCheckInDateTime, worker.workingTime, currentTimeStr, otMinimumMinutes]);
+
+  const finalOt = otManual !== null ? otManual : checkOutMetrics?.overtimeMinutes ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
@@ -644,7 +655,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                 {mode === 'CHECK_IN' ? (
                   lateMins > 0 ? (
                     <span className="text-rose-400 font-bold flex items-center gap-1">
-                      <AlertTriangle className="w-4 h-4" /> Late: {lateMins} Minutes
+                      <AlertTriangle className="w-4 h-4" /> Late: {formatMinutesToReadable(lateMins)}
                     </span>
                   ) : (
                     <span className="text-emerald-400 font-bold flex items-center gap-1">
@@ -653,9 +664,16 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                   )
                 ) : (
                   <div>
-                    {checkOutMetrics && checkOutMetrics.overtimeMinutes > 0 ? (
+                    {finalOt > 0 ? (
                       <span className="text-amber-400 font-bold block">
-                        +{formatMinutesToReadable(checkOutMetrics.overtimeMinutes)} OT
+                        +{formatMinutesToReadable(finalOt)} OT{otManual !== null ? ' (edited)' : ''}
+                      </span>
+                    ) : checkOutMetrics && checkOutMetrics.rawOvertimeMinutes > 0 ? (
+                      <span className="text-emerald-400 font-bold block">
+                        No OT
+                        <span className="block text-[10px] font-normal text-slate-400">
+                          Left {formatMinutesToReadable(checkOutMetrics.rawOvertimeMinutes)} after duty (below {formatMinutesToReadable(otMinimumMinutes)})
+                        </span>
                       </span>
                     ) : checkOutMetrics && checkOutMetrics.earlyExitMinutes > 0 ? (
                       <span className="text-rose-400 font-bold block">
@@ -671,6 +689,53 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                 )}
               </div>
             </div>
+
+            {/* OVERTIME REVIEW / CUSTOM EDIT (check-out only) */}
+            {mode === 'CHECK_OUT' && (
+              <div className="mt-3 p-3 rounded-lg border border-amber-800/60 bg-amber-950/30 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <span className="font-semibold text-amber-300">Overtime (OT)</span>
+                    <span className="text-slate-400">
+                      {' '}
+                      • System: {formatMinutesToReadable(checkOutMetrics?.overtimeMinutes ?? 0)} • OT starts only if exit ≥{' '}
+                      {formatMinutesToReadable(otMinimumMinutes)} after {workingDetails.endTime12}
+                    </span>
+                  </div>
+                  {!otEditing ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtEditing(true);
+                        setOtManual(checkOutMetrics?.overtimeMinutes ?? 0);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
+                    >
+                      Edit OT
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtEditing(false);
+                        setOtManual(null);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                    >
+                      Use System OT
+                    </button>
+                  )}
+                </div>
+                {otEditing && (
+                  <div className="max-w-xs">
+                    <DurationInput value={otManual ?? 0} onChange={setOtManual} accent="amber" />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Custom OT will be saved: <strong className="text-amber-300">{formatMinutesToReadable(otManual ?? 0)}</strong> (logged in audit trail)
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Guard Accountability Badge */}
             <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">

@@ -128,6 +128,32 @@ export const ApiService = {
     return true;
   },
 
+  // ================= WORKER KYC DOCUMENTS =================
+  addWorkerDocument(workerId: string, payload: { type: string; fileName: string; dataUrl: string }): Promise<Worker> {
+    return fetchJson<Worker>(`/workers/${workerId}/documents`, { method: 'POST', body: JSON.stringify(payload) });
+  },
+
+  deleteWorkerDocument(workerId: string, docId: string): Promise<Worker> {
+    return fetchJson<Worker>(`/workers/${workerId}/documents/${docId}`, { method: 'DELETE' });
+  },
+
+  /** Download protected document file as Blob (Authorization header required) */
+  async getWorkerDocumentBlob(workerId: string, docId: string): Promise<Blob> {
+    const token = TokenStore.get();
+    const res = await fetch(`${API_BASE}/workers/${workerId}/documents/${docId}/file`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) {
+      TokenStore.clear();
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return res.blob();
+  },
+
   // ================= GUARDS =================
   getGuards(): Promise<GuardUser[]> {
     return fetchJson<GuardUser[]>('/guards');
@@ -154,7 +180,12 @@ export const ApiService = {
     return fetchJson<AttendanceRecord>('/attendance/check-in', { method: 'POST', body: JSON.stringify(payload) });
   },
 
-  checkOut(payload: { workerId: string; photoDataUrl?: string; gateName?: string }): Promise<AttendanceRecord> {
+  checkOut(payload: {
+    workerId: string;
+    photoDataUrl?: string;
+    gateName?: string;
+    overtimeMinutesOverride?: number;
+  }): Promise<AttendanceRecord> {
     return fetchJson<AttendanceRecord>('/attendance/check-out', { method: 'POST', body: JSON.stringify(payload) });
   },
 

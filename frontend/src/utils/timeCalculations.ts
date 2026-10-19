@@ -189,27 +189,55 @@ export function calculateCheckOutMetrics(
 }
 
 /**
- * Format minutes into readable "1 Hour 30 Minutes" or "45 Minutes"
+ * Duration format used everywhere (late / OT / early exit / total):
+ *   0      -> "0 min"
+ *   45     -> "45 min"
+ *   60     -> "1 hr"
+ *   75     -> "1 hr 15 min"
  */
 export function formatMinutesToReadable(minutes: number): string {
-  if (!minutes || minutes <= 0) return '0 Minutes';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${m} Minutes`;
-  if (m === 0) return `${h} ${h === 1 ? 'Hour' : 'Hours'}`;
-  return `${h} ${h === 1 ? 'Hour' : 'Hours'} ${m} Minutes`;
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  if (total === 0) return '0 min';
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} hr`;
+  return `${h} hr ${m} min`;
+}
+
+/** Same as formatMinutesToReadable (kept for existing imports) */
+export function formatMinutesToDuration(minutes: number): string {
+  return formatMinutesToReadable(minutes);
 }
 
 /**
- * Short duration format: "8h 45m"
+ * OT threshold: overtime counts only if worker leaves at least `minimumMinutes`
+ * after assigned end time (e.g. 10-15 min late exit = no OT). Above threshold, full minutes count.
  */
-export function formatMinutesToDuration(minutes: number): string {
-  if (!minutes || minutes <= 0) return '0m';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
+export function applyOtThreshold(overtimeMinutes: number, minimumMinutes: number = 30): number {
+  const ot = Math.max(0, Math.floor(overtimeMinutes || 0));
+  return ot >= Math.max(0, minimumMinutes || 0) ? ot : 0;
+}
+
+/**
+ * Check-in window for a worker shift on a given day:
+ * opens `opensBeforeMinutes` before start, closes at assigned end time.
+ */
+export function getCheckInWindow(workingTime: string, date: Date = new Date(), opensBeforeMinutes: number = 120) {
+  const d = getWorkingTimeDetails(workingTime);
+  const [sh, sm] = d.startTime24.split(':').map(Number);
+  const [eh, em] = d.endTime24.split(':').map(Number);
+  const start = new Date(date);
+  start.setHours(sh, sm, 0, 0);
+  const end = new Date(date);
+  end.setHours(eh, em, 0, 0);
+  const opens = new Date(start.getTime() - Math.max(0, opensBeforeMinutes || 0) * 60000);
+  return { opens, start, end };
+}
+
+export function isWithinCheckInWindow(workingTime: string, now: Date = new Date(), opensBeforeMinutes: number = 120): boolean {
+  const w = getCheckInWindow(workingTime, now, opensBeforeMinutes);
+  return now >= w.opens && now < w.end;
 }
 
 /**

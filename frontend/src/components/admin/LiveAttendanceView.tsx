@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { AttendanceRecord, Worker } from '../../types';
 import { ApiService } from '../../services/api';
+import { DurationInput } from '../common/DurationInput';
 import {
   formatMinutesToDuration,
   formatMinutesToReadable,
@@ -437,7 +438,7 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
                           </div>
                           {record.lateMinutes > 0 ? (
                             <span className="text-[10px] font-bold text-rose-400 bg-rose-950/80 px-1 rounded border border-rose-800 block w-fit">
-                              +{record.lateMinutes}m Late
+                              +{formatMinutesToReadable(record.lateMinutes)} Late
                             </span>
                           ) : (
                             <span className="text-[10px] text-emerald-400 block">
@@ -490,12 +491,12 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
                       </div>
                       {record.overtimeMinutes > 0 && (
                         <div className="text-amber-300 font-bold">
-                          +{record.overtimeMinutes}m OT
+                          +{formatMinutesToReadable(record.overtimeMinutes)} OT
                         </div>
                       )}
                       {record.earlyExitMinutes > 0 && (
                         <div className="text-rose-400">
-                          -{record.earlyExitMinutes}m Early
+                          -{formatMinutesToReadable(record.earlyExitMinutes)} Early
                         </div>
                       )}
                     </td>
@@ -649,7 +650,7 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
               <div>
                 <span className="text-slate-500 block">Late Minutes:</span>
                 <span className={inspectRecord.lateMinutes > 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                  {inspectRecord.lateMinutes} Mins
+                  {formatMinutesToReadable(inspectRecord.lateMinutes)}
                 </span>
               </div>
               <div>
@@ -661,7 +662,7 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
               <div>
                 <span className="text-slate-500 block">Overtime (OT):</span>
                 <span className={inspectRecord.overtimeMinutes > 0 ? 'text-amber-300 font-bold' : 'text-slate-300'}>
-                  {inspectRecord.overtimeMinutes} Mins
+                  {formatMinutesToReadable(inspectRecord.overtimeMinutes)}
                 </span>
               </div>
             </div>
@@ -742,7 +743,7 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-300 block mb-1">
                     Status
@@ -762,27 +763,23 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
 
                 <div>
                   <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Late Minutes
+                    Late Time
                   </label>
-                  <input
-                    type="number"
-                    min="0"
+                  <DurationInput
                     value={editForm.lateMinutes}
-                    onChange={e => setEditForm({ ...editForm, lateMinutes: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none focus:border-emerald-500"
+                    accent="rose"
+                    onChange={v => setEditForm({ ...editForm, lateMinutes: v })}
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    OT Minutes
+                    Overtime (OT)
                   </label>
-                  <input
-                    type="number"
-                    min="0"
+                  <DurationInput
                     value={editForm.overtimeMinutes}
-                    onChange={e => setEditForm({ ...editForm, overtimeMinutes: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none focus:border-emerald-500"
+                    accent="amber"
+                    onChange={v => setEditForm({ ...editForm, overtimeMinutes: v })}
                   />
                 </div>
               </div>

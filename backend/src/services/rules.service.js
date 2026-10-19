@@ -6,6 +6,8 @@ const DEFAULT_RULES = {
   gracePeriodMinutes: 0,
   otRateMultiplier: 1,
   requireCheckOutPhoto: true,
+  otMinimumMinutes: 30,
+  checkInOpensBeforeMinutes: 120,
 };
 
 const toPublic = doc => ({
@@ -13,6 +15,8 @@ const toPublic = doc => ({
   gracePeriodMinutes: Number(doc?.gracePeriodMinutes ?? 0),
   otRateMultiplier: Number(doc?.otRateMultiplier ?? 1),
   requireCheckOutPhoto: doc?.requireCheckOutPhoto ?? true,
+  otMinimumMinutes: Number(doc?.otMinimumMinutes ?? 30),
+  checkInOpensBeforeMinutes: Number(doc?.checkInOpensBeforeMinutes ?? 120),
 });
 
 export async function getRules() {
@@ -26,6 +30,8 @@ export async function updateRules(rules = {}, actor) {
     gracePeriodMinutes: Math.max(0, Number(rules.gracePeriodMinutes) || 0),
     otRateMultiplier: Number(rules.otRateMultiplier) > 0 ? Number(rules.otRateMultiplier) : 1,
     requireCheckOutPhoto: rules.requireCheckOutPhoto !== undefined ? Boolean(rules.requireCheckOutPhoto) : true,
+    otMinimumMinutes: Math.min(600, Math.max(0, Math.round(Number(rules.otMinimumMinutes ?? 30) || 0))),
+    checkInOpensBeforeMinutes: Math.min(720, Math.max(0, Math.round(Number(rules.checkInOpensBeforeMinutes ?? 120) || 0))),
     salaryBasisDays: 30, // ALWAYS 30 DAYS BASIS
   };
   await Rules.updateOne({ key: 'default' }, { $set: next }, { upsert: true });
@@ -36,7 +42,7 @@ export async function updateRules(rules = {}, actor) {
     actorId: actor?.id || 'admin',
     actorName: actor?.name || 'System Admin',
     actionType: 'RULES_UPDATED',
-    details: `Factory attendance policies and overtime rules updated. Basis: 30 days. OT Multiplier: ${saved.otRateMultiplier}x.`,
+    details: `Factory attendance policies and overtime rules updated. Basis: 30 days. OT Multiplier: ${saved.otRateMultiplier}x. OT minimum: ${saved.otMinimumMinutes} min. Check-in opens ${saved.checkInOpensBeforeMinutes} min before shift.`,
   });
 
   return saved;

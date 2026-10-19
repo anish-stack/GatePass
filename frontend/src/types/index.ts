@@ -37,6 +37,10 @@ export interface WorkerDocument {
   type: 'Aadhaar / ID Card' | 'PAN Card' | 'Employment Contract' | 'Medical Fitness' | 'Bank Passbook' | 'Other';
   fileUrl: string;
   uploadedAt: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  hasFile?: boolean;
 }
 
 export interface Worker {
@@ -93,6 +97,8 @@ export interface AttendanceRecord {
   totalWorkingMinutes: number;
   earlyExitMinutes: number;
   overtimeMinutes: number;
+  otCalculatedMinutes?: number; // system calculated OT before manual edit
+  otManuallyAdjusted?: boolean;
   
   // Status: Present, Present - Late, Present + OT, Completed, Absent
   status: 'PRESENT' | 'PRESENT - LATE' | 'PRESENT + OT' | 'COMPLETED' | 'ABSENT' | 'NOT_ARRIVED';
@@ -119,6 +125,8 @@ export interface AttendanceRulesConfig {
   gracePeriodMinutes: number; // e.g. 0 or 15 mins
   otRateMultiplier: number; // e.g. 1.0 or 1.5
   requireCheckOutPhoto: boolean;
+  otMinimumMinutes?: number; // OT counts only if exit >= this many minutes after duty end (default 30)
+  checkInOpensBeforeMinutes?: number; // check-in window opens this many minutes before shift start (default 120)
 }
 
 export interface PayrollRecord {

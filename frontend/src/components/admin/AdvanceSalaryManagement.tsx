@@ -1344,8 +1344,9 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                     <span className="absolute left-3 top-2.5 text-amber-400 font-mono text-sm">₹</span>
                     <input
                       type="number"
-                      min="1"
-                      step="50"
+                      min="0.01"
+                      step="any"
+                      inputMode="decimal"
                       required
                       value={formAmount}
                       onChange={e => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}

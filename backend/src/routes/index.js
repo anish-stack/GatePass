@@ -48,6 +48,9 @@ router.get('/workers/:id', ADMIN, workers.getOne);
 router.post('/workers', ADMIN, workers.create);
 router.put('/workers/:id', ADMIN, workers.update);
 router.delete('/workers/:id', ADMIN, workers.remove);
+router.post('/workers/:id/documents', ADMIN, workers.addDocument);
+router.get('/workers/:id/documents/:docId/file', ADMIN, workers.documentFile);
+router.delete('/workers/:id/documents/:docId', ADMIN, workers.removeDocument);
 
 // Guards
 router.get('/guards', ADMIN, guards.list);
