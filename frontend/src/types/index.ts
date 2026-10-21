@@ -164,6 +164,14 @@ export interface PayrollRecord {
   advanceCarriedForward?: number; // Remaining advance balance carried forward if advance > salary
   linkedAdvanceDeductions?: LinkedAdvanceDeduction[]; // Itemized advances deducted
 
+  // Manual salary adjustment (admin edit)
+  netBeforeAdjustment?: number;
+  bonusAmount?: number;
+  otherDeduction?: number;
+  adjustmentRemarks?: string;
+  adjustedBy?: string;
+  adjustedAt?: string;
+
   netSalary: number; // baseSalary - absentDeduction - totalLateDeduction - totalEarlyExitDeduction + totalOtPay - advanceDeduction
   paymentStatus: 'DRAFT' | 'APPROVED' | 'PAID';
   generatedAt: string;

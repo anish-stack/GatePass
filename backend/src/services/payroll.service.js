@@ -3,6 +3,7 @@ import { addAuditLog } from './audit.service.js';
 import { getRules } from './rules.service.js';
 import { getAttendance } from './attendance.service.js';
 import { genId, round2 } from '../utils/dateUtils.js';
+import { HttpError } from '../utils/httpError.js';
 import { calculateSalaryBreakdown } from '../utils/timeCalculations.js';
 
 /**
@@ -244,7 +245,14 @@ export async function recalculatePayroll(month, actor) {
       advanceDeduction: finalBreakdown.advanceDeduction,
       advanceCarriedForward: Math.max(0, round2(totalAdvanceAvailable - finalBreakdown.advanceDeduction)),
       linkedAdvanceDeductions: linkedDeductions,
-      netSalary: finalBreakdown.netSalary,
+      // Manual adjustments (bonus / other deduction) survive recalculation
+      netBeforeAdjustment: finalBreakdown.netSalary,
+      bonusAmount: existingPay?.bonusAmount || 0,
+      otherDeduction: existingPay?.otherDeduction || 0,
+      adjustmentRemarks: existingPay?.adjustmentRemarks,
+      adjustedBy: existingPay?.adjustedBy,
+      adjustedAt: existingPay?.adjustedAt,
+      netSalary: applyAdjustment(finalBreakdown.netSalary, existingPay?.bonusAmount, existingPay?.otherDeduction),
       paymentStatus: existingPay?.paymentStatus || 'APPROVED',
       paidAt: existingPay?.paidAt,
       generatedAt: new Date().toISOString(),
@@ -290,6 +298,56 @@ export async function recalculatePayroll(month, actor) {
   });
 
   return calculated.map(({ seq, ...r }) => r);
+}
+
+const applyAdjustment = (net, bonus = 0, ded = 0) =>
+  Math.max(0, round2((Number(net) || 0) + (Number(bonus) || 0) - (Number(ded) || 0)));
+
+/** Manual salary edit: bonus / allowance (+), other deduction (-), remarks */
+export async function adjustPayroll(id, { bonusAmount, otherDeduction, adjustmentRemarks } = {}, actor) {
+  const pay = await Payroll.findOne({ id });
+  if (!pay) return null;
+
+  const bonus = Number(bonusAmount ?? 0);
+  const ded = Number(otherDeduction ?? 0);
+  if (isNaN(bonus) || bonus < 0 || isNaN(ded) || ded < 0) {
+    throw new HttpError(400, 'Bonus and deduction must be 0 or more.');
+  }
+  if ((bonus > 0 || ded > 0) && !String(adjustmentRemarks || '').trim()) {
+    throw new HttpError(400, 'Please enter a reason / remarks for the salary adjustment.');
+  }
+
+  const base = pay.netBeforeAdjustment ?? round2((pay.netSalary || 0) - (pay.bonusAmount || 0) + (pay.otherDeduction || 0));
+  const oldNet = pay.netSalary;
+  pay.netBeforeAdjustment = base;
+  pay.bonusAmount = round2(bonus);
+  pay.otherDeduction = round2(ded);
+  pay.adjustmentRemarks = String(adjustmentRemarks || '').trim() || undefined;
+  pay.adjustedBy = actor?.name || 'Admin';
+  pay.adjustedAt = new Date().toISOString();
+  pay.netSalary = applyAdjustment(base, bonus, ded);
+  await pay.save();
+
+  await addAuditLog({
+    actorRole: 'ADMIN',
+    actorId: actor?.id || 'admin',
+    actorName: actor?.name || 'System Admin',
+    actionType: 'PAYROLL_GENERATED',
+    details: `Salary edited for ${pay.workerName} (${pay.employeeId}) ${pay.month}: Bonus +₹${bonus.toLocaleString()}, Other Deduction -₹${ded.toLocaleString()}. Net ₹${(oldNet || 0).toLocaleString()} → ₹${pay.netSalary.toLocaleString()}. Reason: ${pay.adjustmentRemarks || '-'}${pay.paymentStatus === 'PAID' ? ' (record already PAID)' : ''}`,
+    targetWorkerId: pay.workerId,
+    targetWorkerName: pay.workerName,
+  });
+
+  return Payroll.findOne({ id }).select(PUBLIC).lean();
+}
+
+/** Re-run payroll for months that already have payroll generated (after advance changes) */
+export async function syncPayrollMonths(months = [], actor) {
+  const list = months.filter(Boolean).sort();
+  if (!list.length) return;
+  // Advance balances flow forward (FIFO carry-forward) -> rerun every generated month from the earliest affected one
+  const generated = (await Payroll.distinct('month')).filter(m => m >= list[0]).sort();
+  for (const m of generated) await recalculatePayroll(m, actor);
 }
 
 export async function markPayrollPaid(id) {

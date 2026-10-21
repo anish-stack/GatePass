@@ -1,4 +1,5 @@
 import { Advance, AdvanceDeduction, Worker, PUBLIC } from '../models/index.js';
+import { syncPayrollMonths } from './payroll.service.js';
 import { addAuditLog } from './audit.service.js';
 import { HttpError } from '../utils/httpError.js';
 import { genId, getLocalDateString, getCurrentMonth, round2 } from '../utils/dateUtils.js';
@@ -94,6 +95,8 @@ export async function createAdvance(payload = {}, actor) {
     metadata: { transactionNumber, amount, paymentMode: newAdvance.paymentMode },
   });
 
+  // Re-apply payroll for that month if it was already generated
+  await syncPayrollMonths([salaryMonth], actor);
   return getAdvanceById(newAdvance.id);
 }
 
@@ -138,6 +141,9 @@ export async function updateAdvance(id, updates = {}, actor) {
     targetWorkerName: adv.workerName,
   });
 
+  // Edited advance -> recalc every month it touches (deducted months + salary month)
+  const dedMonths = (await AdvanceDeduction.find({ advanceTransactionId: id }).select('month').lean()).map(d => d.month);
+  await syncPayrollMonths([adv.salaryMonth, ...dedMonths], actor);
   return getAdvanceById(id);
 }
 
@@ -173,6 +179,7 @@ export async function voidAdvance(id, voidedBy, reason, actor) {
     targetWorkerName: adv.workerName,
   });
 
+  await syncPayrollMonths([adv.salaryMonth], actor);
   return getAdvanceById(id);
 }
 

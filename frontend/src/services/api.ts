@@ -219,6 +219,13 @@ export const ApiService = {
     return fetchJson<PayrollRecord[]>('/payroll/calculate', { method: 'POST', body: JSON.stringify({ month }) });
   },
 
+  adjustPayroll(
+    id: string,
+    payload: { bonusAmount: number; otherDeduction: number; adjustmentRemarks: string }
+  ): Promise<PayrollRecord> {
+    return fetchJson<PayrollRecord>(`/payroll/${id}/adjust`, { method: 'PATCH', body: JSON.stringify(payload) });
+  },
+
   markPayrollPaid(id: string): Promise<PayrollRecord> {
     return fetchJson<PayrollRecord>(`/payroll/${id}/pay`, { method: 'PATCH' });
   },

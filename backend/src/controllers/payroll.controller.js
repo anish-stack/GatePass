@@ -12,6 +12,11 @@ export const list = asyncHandler(async (req, res) => res.json(await svc.getPayro
 export const calculate = asyncHandler(async (req, res) =>
   res.json(await svc.recalculatePayroll(monthOf(req.body?.month), req.user))
 );
+export const adjust = asyncHandler(async (req, res) => {
+  const record = await svc.adjustPayroll(req.params.id, req.body || {}, req.user);
+  if (!record) throw new HttpError(404, 'Payroll record not found');
+  res.json(record);
+});
 export const markPaid = asyncHandler(async (req, res) => {
   const record = await svc.markPayrollPaid(req.params.id);
   if (!record) throw new HttpError(404, 'Payroll record not found');

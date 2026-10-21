@@ -72,6 +72,7 @@ router.put('/rules', ADMIN, rules.update);
 router.get('/payroll', ADMIN, payroll.list);
 router.post('/payroll/calculate', ADMIN, payroll.calculate);
 router.patch('/payroll/:id/pay', ADMIN, payroll.markPaid);
+router.patch('/payroll/:id/adjust', ADMIN, payroll.adjust);
 
 // Advances
 router.get('/advances', ADMIN, advances.list);

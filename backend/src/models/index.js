@@ -182,6 +182,13 @@ const PayrollSchema = new Schema(
     advanceCarriedForward: Number,
     linkedAdvanceDeductions: { type: [Mixed], default: [] },
     netSalary: Number,
+    // Manual salary adjustment (kept across recalculation)
+    netBeforeAdjustment: Number,
+    bonusAmount: { type: Number, default: 0 },
+    otherDeduction: { type: Number, default: 0 },
+    adjustmentRemarks: String,
+    adjustedBy: String,
+    adjustedAt: String,
     paymentStatus: { type: String, enum: ['DRAFT', 'APPROVED', 'PAID'], default: 'APPROVED' },
     generatedAt: String,
     paidAt: String,

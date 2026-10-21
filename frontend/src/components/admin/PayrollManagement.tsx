@@ -14,10 +14,12 @@ import {
   User,
   Calendar,
   Clock,
+  Edit3,
 } from 'lucide-react';
 import { Worker, PayrollRecord, AttendanceRulesConfig, AttendanceRecord } from '../../types';
 import { getCurrentMonth } from '../../utils/dateUtils';
 import { ApiService } from '../../services/api';
+import { SalaryEditModal } from './SalaryEditModal';
 import {
   formatCurrency,
   formatMinutesToReadable,
@@ -40,6 +42,7 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [viewingSlip, setViewingSlip] = useState<PayrollRecord | null>(null);
+  const [editingSalary, setEditingSalary] = useState<PayrollRecord | null>(null);
 
   const loadPayroll = async () => {
     try {
@@ -102,6 +105,9 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
       'OT Pay',
       'Advance Deducted',
       'Advance Carried Forward',
+      'Bonus',
+      'Other Deduction',
+      'Adjustment Remarks',
       'Net Salary',
       'Payment Status',
     ];
@@ -121,6 +127,9 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
       Number(r.totalOtPay != null ? r.totalOtPay : 0).toFixed(2),
       Number(r.advanceDeduction != null ? r.advanceDeduction : 0).toFixed(2),
       Number(r.advanceCarriedForward != null ? r.advanceCarriedForward : 0).toFixed(2),
+      Number(r.bonusAmount || 0).toFixed(2),
+      Number(r.otherDeduction || 0).toFixed(2),
+      `"${(r.adjustmentRemarks || '').replace(/"/g, "'")}"`,
       Number(r.netSalary != null ? r.netSalary : (r.baseSalary || 0)).toFixed(2),
       r.paymentStatus || 'APPROVED',
     ]);
@@ -250,7 +259,7 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                 <th className="py-3 px-4 text-amber-400">Advance Cut</th>
                 <th className="py-3 px-4">Net Payable Salary</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Salary Slip</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -339,6 +348,12 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                     {/* Net Salary */}
                     <td className="py-3 px-4 font-mono font-bold text-base text-emerald-400">
                       {formatCurrency(pay.netSalary || 0, true)}
+                      {((pay.bonusAmount || 0) > 0 || (pay.otherDeduction || 0) > 0) && (
+                        <span className="block text-[10px] font-normal text-amber-300" title={pay.adjustmentRemarks}>
+                          Edited{(pay.bonusAmount || 0) > 0 ? ` +₹${pay.bonusAmount}` : ''}
+                          {(pay.otherDeduction || 0) > 0 ? ` −₹${pay.otherDeduction}` : ''}
+                        </span>
+                      )}
                     </td>
 
                     {/* Payment Status */}
@@ -359,13 +374,23 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
 
                     {/* View Slip */}
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => setViewingSlip(pay)}
-                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded-lg text-xs font-medium flex items-center gap-1.5 ml-auto transition-colors cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View Slip</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setEditingSalary(pay)}
+                          className="px-2.5 py-1.5 bg-amber-950/60 hover:bg-amber-950 border border-amber-800 text-amber-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                          title="Edit salary (bonus / deduction)"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          onClick={() => setViewingSlip(pay)}
+                          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>View Slip</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -374,6 +399,17 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
           </table>
         </div>
       </div>
+
+      {editingSalary && (
+        <SalaryEditModal
+          record={editingSalary}
+          onClose={() => setEditingSalary(null)}
+          onSaved={saved => {
+            setPayrollRecords(prev => prev.map(r => (r.id === saved.id ? saved : r)));
+            setEditingSalary(null);
+          }}
+        />
+      )}
 
       {/* ========================================================= */}
       {/* FORMAL INDUSTRIAL PAYSLIP MODAL (30-DAY BASIS)            */}
@@ -452,9 +488,15 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                   <span className="text-slate-400">Overtime ({formatMinutesToReadable(viewingSlip.totalOtMinutes || 0)}):</span>
                   <span className="font-mono text-sky-400">+{formatCurrency(viewingSlip.totalOtPay || 0, true)}</span>
                 </div>
+                {(viewingSlip.bonusAmount || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Bonus / Allowance:</span>
+                    <span className="font-mono text-emerald-400">+{formatCurrency(viewingSlip.bonusAmount || 0, true)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold pt-2 border-t border-slate-800 text-white">
                   <span>Gross Total:</span>
-                  <span className="font-mono">{formatCurrency((viewingSlip.baseSalary || 0) + (viewingSlip.totalOtPay || 0), true)}</span>
+                  <span className="font-mono">{formatCurrency((viewingSlip.baseSalary || 0) + (viewingSlip.totalOtPay || 0) + (viewingSlip.bonusAmount || 0), true)}</span>
                 </div>
               </div>
 
@@ -483,15 +525,33 @@ export const PayrollManagementView: React.FC<PayrollManagementProps> = ({
                     <span className="font-mono text-amber-400 font-bold">-{formatCurrency(viewingSlip.advanceDeduction || 0, true)}</span>
                   </div>
                 )}
+                {(viewingSlip.otherDeduction || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Other Deduction:</span>
+                    <span className="font-mono text-rose-400">-{formatCurrency(viewingSlip.otherDeduction || 0, true)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold pt-2 border-t border-slate-800 text-white">
                   <span>Total Deductions:</span>
                   <span className="font-mono text-rose-400">
-                    -{formatCurrency((viewingSlip.absentDeduction || 0) + (viewingSlip.totalLateDeduction || 0) + (viewingSlip.totalEarlyExitDeduction || 0) + (viewingSlip.advanceDeduction || 0), true)}
+                    -{formatCurrency((viewingSlip.absentDeduction || 0) + (viewingSlip.totalLateDeduction || 0) + (viewingSlip.totalEarlyExitDeduction || 0) + (viewingSlip.advanceDeduction || 0) + (viewingSlip.otherDeduction || 0), true)}
                   </span>
                 </div>
               </div>
 
             </div>
+
+            {viewingSlip.adjustmentRemarks && (
+              <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs">
+                <span className="text-amber-300 font-semibold">Salary Adjustment:</span>{' '}
+                <span className="text-slate-300">{viewingSlip.adjustmentRemarks}</span>
+                {viewingSlip.adjustedBy && (
+                  <span className="block text-[10px] text-slate-500 mt-0.5">
+                    by {viewingSlip.adjustedBy} • {viewingSlip.adjustedAt?.slice(0, 10)}
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Advance Carried Forward Balance Notice */}
             {(viewingSlip.advanceCarriedForward || 0) > 0 && (

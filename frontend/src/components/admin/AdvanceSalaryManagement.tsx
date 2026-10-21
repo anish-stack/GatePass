@@ -329,6 +329,13 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
       return;
     }
 
+    if (editingAdvance && editingAdvance.deductedAmount > 0 && numAmount < editingAdvance.deductedAmount) {
+      setErrorToast(
+        `₹${editingAdvance.deductedAmount.toLocaleString()} already deducted from salary. Amount cannot be less than that.`
+      );
+      return;
+    }
+
     try {
       if (editingAdvance) {
         // Edit existing advance
@@ -341,7 +348,9 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
           remarks: formRemarks.trim() || undefined,
           updatedBy: session.name,
         });
-        setSuccessToast(`Advance transaction ${editingAdvance.transactionNumber} updated successfully.`);
+        setSuccessToast(
+          `Advance ${editingAdvance.transactionNumber} updated. Generated payroll re-calculated automatically.`
+        );
       } else {
         // Create new advance
         const created = await ApiService.createAdvance({
@@ -1003,7 +1012,7 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                               <Eye className="w-3.5 h-3.5" />
                             </button>
 
-                            {adv.status !== 'VOIDED' && adv.deductedAmount === 0 && (
+                            {adv.status !== 'VOIDED' && (
                               <button
                                 onClick={() => handleOpenEditModal(adv)}
                                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors cursor-pointer"
@@ -1339,6 +1348,11 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
                 <div>
                   <label className="text-xs font-semibold text-slate-300 block mb-1">
                     Advance Amount (₹) <span className="text-rose-400">*</span>
+                    {editingAdvance && editingAdvance.deductedAmount > 0 && (
+                      <span className="block text-[10px] font-normal text-amber-300 mt-0.5">
+                        Already deducted ₹{editingAdvance.deductedAmount.toLocaleString()} • minimum allowed
+                      </span>
+                    )}
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-2.5 text-amber-400 font-mono text-sm">₹</span>
@@ -1565,6 +1579,18 @@ export const AdvanceSalaryManagement: React.FC<AdvanceSalaryManagementProps> = (
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
+              {viewingAdvance.status !== 'VOIDED' && (
+                <button
+                  onClick={() => {
+                    const adv = viewingAdvance;
+                    setViewingAdvance(null);
+                    handleOpenEditModal(adv);
+                  }}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> Edit Advance
+                </button>
+              )}
               <button
                 onClick={() => setViewingAdvance(null)}
                 className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold cursor-pointer"
