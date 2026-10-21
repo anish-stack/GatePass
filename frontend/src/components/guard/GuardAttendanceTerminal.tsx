@@ -90,11 +90,17 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
 
   const loadData = async () => {
     try {
-      const [w, att, r] = await Promise.all([
+      const yesterday = getTodayDateString(new Date(Date.now() - 24 * 3600 * 1000));
+      const [w, attToday, attYesterday, r] = await Promise.all([
         ApiService.getWorkers(),
         ApiService.getAttendance({ date: getTodayDateString() }),
+        ApiService.getAttendance({ date: yesterday }),
         ApiService.getRules(),
       ]);
+      // Keep yesterday's still-inside workers (overnight / 24-hour) so guard can check them out
+      const todayIds = new Set(attToday.map(a => a.workerId));
+      const openYesterday = attYesterday.filter(a => a.checkInTime && !a.checkOutTime && !todayIds.has(a.workerId));
+      const att = [...attToday, ...openYesterday];
       setRules(r);
       setWorkers(w);
       setAttendanceList(att);
@@ -127,6 +133,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
   // Re-evaluate shift windows once per minute
   const minuteKey = Math.floor(currentTime.getTime() / 60000);
   const opensBefore = rules?.checkInOpensBeforeMinutes ?? 120;
+  const anytime = rules?.allowCheckInAnytime ?? true;
 
   /**
    * Shift visibility: a worker is shown on the gate roster only during his own shift window
@@ -137,10 +144,11 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
     const now = new Date(minuteKey * 60000);
     return workers.filter(w => {
       const att = attendanceMap.get(w.id);
+      if (anytime) return true; // 24-hour mode
       if (att?.checkInTime) return true;
       return isWithinCheckInWindow(w.workingTime, now, opensBefore);
     });
-  }, [workers, attendanceMap, minuteKey, opensBefore]);
+  }, [workers, attendanceMap, minuteKey, opensBefore, anytime]);
 
   const hiddenOffShift = workers.length - shiftWorkers.length;
 
@@ -233,7 +241,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
       return;
     }
 
-    if (!isWithinCheckInWindow(worker.workingTime, new Date(), opensBefore)) {
+    if (!anytime && !isWithinCheckInWindow(worker.workingTime, new Date(), opensBefore)) {
       const win = getCheckInWindow(worker.workingTime, new Date(), opensBefore);
       setToastMessage({
         type: 'warning',

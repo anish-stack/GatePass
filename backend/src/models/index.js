@@ -147,6 +147,7 @@ const RulesSchema = new Schema(
     requireCheckOutPhoto: { type: Boolean, default: true },
     otMinimumMinutes: { type: Number, default: 30 },
     checkInOpensBeforeMinutes: { type: Number, default: 120 },
+    allowCheckInAnytime: { type: Boolean, default: true }, // 24-hour mode: no shift window
   },
   { ...baseOptions, strict: false }
 );

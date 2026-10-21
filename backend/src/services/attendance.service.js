@@ -32,6 +32,22 @@ export async function getAttendance(filters = {}, { withPhotos = true } = {}) {
  * Guard identity is taken from the authenticated user (JWT), never trusted from body.
  * actor = { role, id, name, guardCode, gate }
  */
+/** Latest record checked-in but not checked-out within last 24 hours */
+async function findOpenRecord(workerId, now = new Date()) {
+  const yesterday = getLocalDateString(new Date(now.getTime() - 24 * 3600 * 1000));
+  const list = await Attendance.find({
+    workerId,
+    date: { $in: [yesterday, getLocalDateString(now)] },
+  })
+    .select('id date checkInTime checkOutTime checkInDateTime')
+    .lean();
+  return (
+    list
+      .filter(r => r.checkInTime && !r.checkOutTime)
+      .sort((a, b) => String(b.checkInDateTime || '').localeCompare(String(a.checkInDateTime || '')))[0] || null
+  );
+}
+
 export async function recordCheckIn(payload, actor) {
   if (!payload.workerId) throw new HttpError(400, 'workerId is required.');
   if (!payload.photoDataUrl || !String(payload.photoDataUrl).startsWith('data:image/')) {
@@ -54,10 +70,15 @@ export async function recordCheckIn(payload, actor) {
   if (existing && existing.checkInTime) {
     throw new HttpError(409, `Worker ${worker.fullName} is already checked in today at ${existing.checkInTime}.`);
   }
+  // Still inside from previous day (24-hour / overnight) -> must check out first
+  const openPrev = await findOpenRecord(worker.id, now);
+  if (openPrev && openPrev.date !== dateStr) {
+    throw new HttpError(409, `Worker ${worker.fullName} is still inside since ${openPrev.date} ${openPrev.checkInTime}. Check out first.`);
+  }
 
   // Check-in allowed only inside worker's shift window (opens X min before start, closes at duty end)
   const rules = await getRules();
-  if (actor.role === 'GUARD') {
+  if (actor.role === 'GUARD' && !rules.allowCheckInAnytime) {
     const win = getCheckInWindow(worker.workingTime, now, rules.checkInOpensBeforeMinutes);
     if (now < win.opens) {
       throw new HttpError(400, `Check-in for ${worker.fullName} opens at ${formatTime12Short(win.opens)} (shift ${worker.workingTime}).`);
@@ -129,7 +150,12 @@ export async function recordCheckOut(payload, actor) {
   const dateStr = getLocalDateString(now);
   const timeStr = formatTime12(now);
 
-  const record = await Attendance.findOne({ workerId: worker.id, date: dateStr });
+  // Today's record, or an open record from yesterday (overnight / 24-hour shift)
+  let record = await Attendance.findOne({ workerId: worker.id, date: dateStr });
+  if (!record || !record.checkInTime) {
+    const open = await findOpenRecord(worker.id, now);
+    if (open) record = await Attendance.findOne({ id: open.id });
+  }
   if (!record || !record.checkInTime) {
     throw new HttpError(400, `Worker ${worker.fullName} has not checked in today.`);
   }

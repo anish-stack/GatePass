@@ -127,6 +127,7 @@ export interface AttendanceRulesConfig {
   requireCheckOutPhoto: boolean;
   otMinimumMinutes?: number; // OT counts only if exit >= this many minutes after duty end (default 30)
   checkInOpensBeforeMinutes?: number; // check-in window opens this many minutes before shift start (default 120)
+  allowCheckInAnytime?: boolean; // 24-hour mode: show all workers & allow check-in any time
 }
 
 export interface PayrollRecord {

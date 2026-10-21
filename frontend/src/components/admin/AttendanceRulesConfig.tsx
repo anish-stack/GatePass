@@ -29,6 +29,7 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
     requireCheckOutPhoto: true,
     otMinimumMinutes: 30,
     checkInOpensBeforeMinutes: 120,
+    allowCheckInAnytime: true,
   });
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -172,7 +173,23 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
               </span>
             </div>
 
-            <div>
+            <label className="flex items-start gap-3 p-3 bg-slate-950 rounded-xl border border-amber-800/60 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rules.allowCheckInAnytime ?? true}
+                onChange={e => setRules({ ...rules, allowCheckInAnytime: e.target.checked })}
+                className="w-4 h-4 mt-0.5 rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500"
+              />
+              <div>
+                <span className="text-xs font-semibold text-white block">24-Hour Check-In (No Shift Window)</span>
+                <span className="text-[11px] text-slate-400">
+                  ON: all workers show on gate terminal & check-in allowed any time (testing / 24x7 gates). OFF: worker shows only
+                  during his own shift window below.
+                </span>
+              </div>
+            </label>
+
+            <div className={rules.allowCheckInAnytime ?? true ? 'opacity-50 pointer-events-none' : ''}>
               <label className="text-xs font-semibold text-slate-300 block mb-1">
                 Check-In Window Opens Before Shift Start
               </label>
