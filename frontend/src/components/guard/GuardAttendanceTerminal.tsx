@@ -22,7 +22,7 @@ import {
   CurrentUserSession,
   WorkingTimeOption,
 } from '../../types';
-import { getTodayDateString } from '../../utils/dateUtils';
+import { getTodayDateString, checkInDateLabel } from '../../utils/dateUtils';
 import { ApiService } from '../../services/api';
 import { WorkerGateCard } from './WorkerGateCard';
 import { CameraCaptureModal } from '../camera/CameraCaptureModal';
@@ -694,7 +694,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
                   <th className="py-3 px-4">Worker Profile Photo & Name</th>
                   <th className="py-3 px-4">Employee ID</th>
                   <th className="py-3 px-4">Working Time</th>
-                  <th className="py-3 px-4">Check-In Time</th>
+                  <th className="py-3 px-4">Check-In Date & Time</th>
                   <th className="py-3 px-4">Late Status</th>
                   <th className="py-3 px-4">Marked By Guard</th>
                   <th className="py-3 px-4 text-right">Gate Action</th>
@@ -722,6 +722,25 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
                     </td>
                     <td className="py-3 px-4 font-mono font-semibold text-white">
                       {attendance.checkInTime}
+                      {(() => {
+                        const dl = checkInDateLabel(attendance.checkInDateTime, attendance.date);
+                        return dl ? (
+                          <span className="block text-[11px] font-normal text-slate-400">
+                            {dl.text}
+                            {dl.tag && (
+                              <span
+                                className={`ml-1.5 px-1.5 rounded border text-[10px] font-bold ${
+                                  dl.tag === 'Today'
+                                    ? 'text-emerald-400 bg-emerald-950/80 border-emerald-800'
+                                    : 'text-amber-400 bg-amber-950/80 border-amber-800'
+                                }`}
+                              >
+                                {dl.tag}
+                              </span>
+                            )}
+                          </span>
+                        ) : null;
+                      })()}
                     </td>
                     <td className="py-3 px-4">
                       {attendance.lateMinutes > 0 ? (
