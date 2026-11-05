@@ -1,5 +1,6 @@
 import { Rules } from '../models/index.js';
 import { addAuditLog } from './audit.service.js';
+import { cached, bump } from '../utils/cache.js';
 
 const DEFAULT_RULES = {
   salaryBasisDays: 30,
@@ -22,9 +23,11 @@ const toPublic = doc => ({
 });
 
 export async function getRules() {
-  let doc = await Rules.findOne({ key: 'default' }).lean();
-  if (!doc) doc = (await Rules.create({ key: 'default', ...DEFAULT_RULES })).toObject();
-  return toPublic(doc);
+  return cached('rules', {}, async () => {
+    let doc = await Rules.findOne({ key: 'default' }).lean();
+    if (!doc) doc = (await Rules.create({ key: 'default', ...DEFAULT_RULES })).toObject();
+    return toPublic(doc);
+  }, 300);
 }
 
 export async function updateRules(rules = {}, actor) {
@@ -38,6 +41,7 @@ export async function updateRules(rules = {}, actor) {
     salaryBasisDays: 30, // ALWAYS 30 DAYS BASIS
   };
   await Rules.updateOne({ key: 'default' }, { $set: next }, { upsert: true });
+  await bump('rules');
   const saved = await getRules();
 
   await addAuditLog({

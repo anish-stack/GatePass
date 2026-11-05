@@ -5,6 +5,9 @@ import {
   Filter,
   Eye,
   Edit2,
+  Plus,
+  Trash2,
+  RotateCcw,
   Clock,
   ShieldCheck,
   CheckCircle2,
@@ -18,13 +21,13 @@ import {
   ArrowRight,
   TrendingUp,
 } from 'lucide-react';
-import { AttendanceRecord, Worker } from '../../types';
+import { AttendanceRecord, AttendanceRulesConfig, Worker } from '../../types';
 import { ApiService } from '../../services/api';
-import { DurationInput } from '../common/DurationInput';
+import { EditAttendanceModal, AddAttendanceModal, ReasonActionModal } from './AttendanceEditModals';
 import {
   formatMinutesToDuration,
   formatMinutesToReadable,
-  WORKING_TIME_OPTIONS,
+  workingTimeFilterOptions,
 } from '../../utils/timeCalculations';
 import { getTodayDateString } from '../../utils/dateUtils';
 
@@ -53,30 +56,20 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
   // Photo Inspection Modal
   const [inspectRecord, setInspectRecord] = useState<AttendanceRecord | null>(null);
 
-  // Manual Edit Modal (with mandatory reason for Audit Trail)
+  // Admin edit / add / re-open / delete (all need a reason, all audited)
   const [editRecord, setEditRecord] = useState<AttendanceRecord | null>(null);
-  const [editForm, setEditForm] = useState<{
-    checkInTime: string;
-    checkOutTime: string;
-    status: AttendanceRecord['status'];
-    lateMinutes: number;
-    overtimeMinutes: number;
-    reason: string;
-  }>({
-    checkInTime: '',
-    checkOutTime: '',
-    status: 'PRESENT',
-    lateMinutes: 0,
-    overtimeMinutes: 0,
-    reason: '',
-  });
+  const [showAdd, setShowAdd] = useState(false);
+  const [reasonAction, setReasonAction] = useState<{ kind: 'delete' | 'reopen'; record: AttendanceRecord } | null>(null);
+  const [notice, setNotice] = useState<string>('');
+  const [rules, setRules] = useState<AttendanceRulesConfig | null>(null);
 
   // Direct, live retrieval from database
   const [attendanceList, setAttendanceList] = useState<AttendanceRecord[]>([]);
 
+  // Only fetch the selected day / range (not the whole history)
   const loadAttendance = async () => {
     try {
-      const data = await ApiService.getAttendance();
+      const data = await ApiService.getAttendance(useDateRange ? { from: startDate, to: endDate } : { date: selectedDate });
       setAttendanceList(data);
     } catch (err: any) {
       alert(err.message || 'Failed to load attendance.');
@@ -85,7 +78,21 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
 
   useEffect(() => {
     loadAttendance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useDateRange, selectedDate, startDate, endDate]);
+
+  useEffect(() => {
+    ApiService.getRules().then(setRules).catch(() => setRules(null));
   }, []);
+
+  const handleChanged = async (note: string) => {
+    setEditRecord(null);
+    setShowAdd(false);
+    setReasonAction(null);
+    setNotice(note);
+    await loadAttendance();
+    onDataChanged();
+  };
 
   // Filtered attendance records
   const filteredRecords = useMemo(() => {
@@ -139,44 +146,7 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
     searchQuery,
   ]);
 
-  const handleOpenEdit = (record: AttendanceRecord) => {
-    setEditRecord(record);
-    setEditForm({
-      checkInTime: record.checkInTime || '',
-      checkOutTime: record.checkOutTime || '',
-      status: record.status,
-      lateMinutes: record.lateMinutes || 0,
-      overtimeMinutes: record.overtimeMinutes || 0,
-      reason: '',
-    });
-  };
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editRecord || !editForm.reason.trim()) return;
-
-    try {
-      await ApiService.adminOverrideAttendance(
-        editRecord.id,
-        {
-          checkInTime: editForm.checkInTime,
-          checkOutTime: editForm.checkOutTime,
-          status: editForm.status,
-          lateMinutes: Number(editForm.lateMinutes),
-          overtimeMinutes: Number(editForm.overtimeMinutes),
-        },
-        adminName,
-        editForm.reason.trim()
-      );
-    } catch (err: any) {
-      alert(err.message || 'Failed to save attendance correction.');
-      return;
-    }
-
-    setEditRecord(null);
-    await loadAttendance();
-    onDataChanged();
-  };
+  const handleOpenEdit = (record: AttendanceRecord) => setEditRecord(record);
 
   // Export to CSV
   const handleExportCSV = () => {
@@ -253,6 +223,13 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
             </button>
 
             <button
+              onClick={() => setShowAdd(true)}
+              className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-600 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Attendance</span>
+            </button>
+            <button
               onClick={handleExportCSV}
               className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors"
             >
@@ -312,8 +289,8 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500 font-mono"
             >
               <option value="ALL">All Working Times</option>
-              {WORKING_TIME_OPTIONS.map(opt => (
-                <option key={opt.label} value={opt.label}>{opt.label}</option>
+              {workingTimeFilterOptions([...workers.map(w => w.workingTime), ...attendanceList.map(r => r.workingTime)]).map(label => (
+                <option key={label} value={label}>{label}</option>
               ))}
             </select>
           </div>
@@ -358,6 +335,14 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
 
       {/* Attendance Records Table with Live Photos */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        {notice && (
+          <div className="mx-4 my-3 px-3 py-2 rounded-lg bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs flex items-start justify-between gap-3">
+            <span>{notice}</span>
+            <button onClick={() => setNotice('')} className="text-emerald-400 hover:text-white cursor-pointer" title="Dismiss">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-300">
             <thead className="bg-slate-950/70 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
@@ -555,6 +540,24 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
+
+                        {record.checkOutTime && (
+                          <button
+                            onClick={() => setReasonAction({ kind: 'reopen', record })}
+                            className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg text-xs transition-colors cursor-pointer"
+                            title="Re-open punch (remove check-out)"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => setReasonAction({ kind: 'delete', record })}
+                          className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg text-xs transition-colors cursor-pointer"
+                          title="Delete attendance record"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
 
@@ -691,132 +694,25 @@ export const LiveAttendanceView: React.FC<LiveAttendanceViewProps> = ({
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* ADMIN MANUAL OVERRIDE MODAL WITH COMPULSORY REASON        */}
-      {/* ========================================================= */}
       {editRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 text-white space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="font-bold text-base text-white">
-                  Admin Manual Attendance Correction
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {editRecord.workerName} ({editRecord.workerEmployeeId}) • Date: {editRecord.date}
-                </p>
-              </div>
-              <button
-                onClick={() => setEditRecord(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Check-In Time
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.checkInTime}
-                    onChange={e => setEditForm({ ...editForm, checkInTime: e.target.value })}
-                    placeholder="09:00:00 AM"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Check-Out Time
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.checkOutTime}
-                    onChange={e => setEditForm({ ...editForm, checkOutTime: e.target.value })}
-                    placeholder="07:00:00 PM"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={editForm.status}
-                    onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white outline-none focus:border-emerald-500"
-                  >
-                    <option value="PRESENT">PRESENT</option>
-                    <option value="PRESENT - LATE">PRESENT - LATE</option>
-                    <option value="PRESENT + OT">PRESENT + OT</option>
-                    <option value="COMPLETED">COMPLETED</option>
-                    <option value="ABSENT">ABSENT</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Late Time
-                  </label>
-                  <DurationInput
-                    value={editForm.lateMinutes}
-                    accent="rose"
-                    onChange={v => setEditForm({ ...editForm, lateMinutes: v })}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Overtime (OT)
-                  </label>
-                  <DurationInput
-                    value={editForm.overtimeMinutes}
-                    accent="amber"
-                    onChange={v => setEditForm({ ...editForm, overtimeMinutes: v })}
-                  />
-                </div>
-              </div>
-
-              {/* MANDATORY AUDIT REASON */}
-              <div className="bg-amber-950/40 border border-amber-800/80 p-3 rounded-xl space-y-1">
-                <label className="text-xs font-bold text-amber-300 block">
-                  Mandatory Modification Reason (Preserved in Audit Log) *
-                </label>
-                <textarea
-                  required
-                  rows={2}
-                  value={editForm.reason}
-                  onChange={e => setEditForm({ ...editForm, reason: e.target.value })}
-                  placeholder="e.g. Worker was approved by supervisor for factory gate maintenance emergency."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditRecord(null)}
-                  className="px-3 py-1.5 border border-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-xs cursor-pointer"
-                >
-                  Commit Audit Override
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <EditAttendanceModal record={editRecord} rules={rules} onClose={() => setEditRecord(null)} onSaved={handleChanged} />
+      )}
+      {showAdd && (
+        <AddAttendanceModal
+          workers={workers}
+          defaultDate={useDateRange ? startDate : selectedDate}
+          rules={rules}
+          onClose={() => setShowAdd(false)}
+          onSaved={handleChanged}
+        />
+      )}
+      {reasonAction && (
+        <ReasonActionModal
+          kind={reasonAction.kind}
+          record={reasonAction.record}
+          onClose={() => setReasonAction(null)}
+          onDone={handleChanged}
+        />
       )}
 
     </div>

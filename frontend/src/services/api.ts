@@ -17,6 +17,21 @@ import { getCurrentMonth, getTodayDateString } from '../utils/dateUtils';
 // Empty = same origin (Vite dev proxy / Nginx). Set VITE_API_URL=https://api.yourdomain.com for split hosting.
 const API_BASE = `${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api`;
 
+// Photos live on the server disk; API returns relative paths like /api/files/photos/... -> prefix API origin
+const ORIGIN = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+export const assetUrl = (u?: string): string | undefined => (u && u.startsWith('/api/files/') ? `${ORIGIN}${u}` : u);
+
+const fixWorker = <T extends Partial<Worker>>(w: T): T => (w && w.profilePhoto ? { ...w, profilePhoto: assetUrl(w.profilePhoto) as string } : w);
+const fixAtt = <T extends Partial<AttendanceRecord>>(a: T): T =>
+  a
+    ? {
+        ...a,
+        checkInPhoto: assetUrl(a.checkInPhoto),
+        checkOutPhoto: assetUrl(a.checkOutPhoto),
+        workerPhoto: assetUrl(a.workerPhoto) as string,
+      }
+    : a;
+
 const TOKEN_KEY = 'gatepass_token';
 
 export const TokenStore = {
@@ -111,16 +126,16 @@ export const ApiService = {
   },
 
   // ================= WORKERS =================
-  getWorkers(): Promise<Worker[]> {
-    return fetchJson<Worker[]>('/workers');
+  async getWorkers(): Promise<Worker[]> {
+    return (await fetchJson<Worker[]>('/workers')).map(fixWorker);
   },
 
-  createWorker(worker: Omit<Worker, 'id'> & { id?: string }): Promise<Worker> {
-    return fetchJson<Worker>('/workers', { method: 'POST', body: JSON.stringify(worker) });
+  async createWorker(worker: Omit<Worker, 'id'> & { id?: string }): Promise<Worker> {
+    return fixWorker(await fetchJson<Worker>('/workers', { method: 'POST', body: JSON.stringify(worker) }));
   },
 
-  updateWorker(id: string, updates: Partial<Worker>): Promise<Worker> {
-    return fetchJson<Worker>(`/workers/${id}`, { method: 'PUT', body: JSON.stringify(updates) });
+  async updateWorker(id: string, updates: Partial<Worker>): Promise<Worker> {
+    return fixWorker(await fetchJson<Worker>(`/workers/${id}`, { method: 'PUT', body: JSON.stringify(updates) }));
   },
 
   async deleteWorker(id: string): Promise<boolean> {
@@ -172,33 +187,70 @@ export const ApiService = {
   },
 
   // ================= ATTENDANCE =================
-  getAttendance(filters?: { date?: string; month?: string; workerId?: string; status?: string }): Promise<AttendanceRecord[]> {
-    return fetchJson<AttendanceRecord[]>(`/attendance${qs({ ...filters })}`);
+  async getAttendance(filters?: {
+    date?: string;
+    month?: string;
+    from?: string;
+    to?: string;
+    workerId?: string;
+    status?: string;
+  }): Promise<AttendanceRecord[]> {
+    return (await fetchJson<AttendanceRecord[]>(`/attendance${qs({ ...filters })}`)).map(fixAtt);
   },
 
-  checkIn(payload: { workerId: string; photoDataUrl: string; gateName?: string }): Promise<AttendanceRecord> {
-    return fetchJson<AttendanceRecord>('/attendance/check-in', { method: 'POST', body: JSON.stringify(payload) });
+  async checkIn(payload: { workerId: string; photoDataUrl: string; gateName?: string }): Promise<AttendanceRecord> {
+    return fixAtt(await fetchJson<AttendanceRecord>('/attendance/check-in', { method: 'POST', body: JSON.stringify(payload) }));
   },
 
-  checkOut(payload: {
+  async checkOut(payload: {
     workerId: string;
     photoDataUrl?: string;
     gateName?: string;
     overtimeMinutesOverride?: number;
   }): Promise<AttendanceRecord> {
-    return fetchJson<AttendanceRecord>('/attendance/check-out', { method: 'POST', body: JSON.stringify(payload) });
+    return fixAtt(await fetchJson<AttendanceRecord>('/attendance/check-out', { method: 'POST', body: JSON.stringify(payload) }));
   },
 
-  adminOverrideAttendance(
+  /**
+   * Admin edit. Server recalculates late / OT / early exit / total / status from the punch times.
+   * Date-times are wall-clock "YYYY-MM-DDTHH:mm" (read in factory timezone). checkOutDateTime: null = re-open.
+   * Send only the fields that changed.
+   */
+  async editAttendance(
     recordId: string,
-    updates: Partial<AttendanceRecord>,
-    adminName: string,
-    reason: string
+    changes: {
+      checkInDateTime?: string;
+      checkOutDateTime?: string | null;
+      workingTime?: string;
+      status?: 'ABSENT' | 'NOT_ARRIVED';
+      lateMinutes?: number;
+      overtimeMinutes?: number;
+      earlyExitMinutes?: number;
+      reason: string;
+    }
   ): Promise<AttendanceRecord> {
-    return fetchJson<AttendanceRecord>('/attendance/override', {
-      method: 'POST',
-      body: JSON.stringify({ recordId, updates, adminName, reason }),
-    });
+    return fixAtt(await fetchJson<AttendanceRecord>(`/attendance/${recordId}`, { method: 'PATCH', body: JSON.stringify(changes) }));
+  },
+
+  async addManualAttendance(payload: {
+    workerId: string;
+    checkInDateTime: string;
+    checkOutDateTime?: string;
+    workingTime?: string;
+    lateMinutes?: number;
+    overtimeMinutes?: number;
+    earlyExitMinutes?: number;
+    reason: string;
+  }): Promise<AttendanceRecord> {
+    return fixAtt(await fetchJson<AttendanceRecord>('/attendance/manual', { method: 'POST', body: JSON.stringify(payload) }));
+  },
+
+  async reopenAttendance(recordId: string, reason: string): Promise<AttendanceRecord> {
+    return fixAtt(await fetchJson<AttendanceRecord>(`/attendance/${recordId}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) }));
+  },
+
+  deleteAttendance(recordId: string, reason: string): Promise<{ success: boolean; id: string; month: string }> {
+    return fetchJson(`/attendance/${recordId}`, { method: 'DELETE', body: JSON.stringify({ reason }) });
   },
 
   // ================= RULES =================
@@ -297,8 +349,9 @@ export const ApiService = {
   },
 
   // ================= DASHBOARD STATS =================
-  getDashboardStats(date: string = getTodayDateString(), month: string = getCurrentMonth()) {
-    return fetchJson<any>(`/stats${qs({ date, month })}`);
+  async getDashboardStats(date: string = getTodayDateString(), month: string = getCurrentMonth()) {
+    const d = await fetchJson<any>(`/stats${qs({ date, month })}`);
+    return d && Array.isArray(d.todayRoll) ? { ...d, todayRoll: d.todayRoll.map(fixAtt) } : d;
   },
 
   // ================= AUDIT LOGS =================

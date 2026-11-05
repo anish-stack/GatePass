@@ -25,7 +25,8 @@ import {
 import { Worker, WorkingTimeOption, WorkerDocument, WorkerAdvanceSummary, AdvanceTransaction, AdvancePayrollDeduction } from '../../types';
 import { ApiService } from '../../services/api';
 import { WorkerDocumentsModal, WorkerDocumentList, DocumentViewerModal } from './WorkerDocuments';
-import { formatCurrency, WORKING_TIME_OPTIONS } from '../../utils/timeCalculations';
+import { formatCurrency, workingTimeFilterOptions, validateWorkingTime } from '../../utils/timeCalculations';
+import { WorkingTimePicker } from '../common/WorkingTimePicker';
 
 interface WorkerManagementProps {
   onDataChanged: () => void;
@@ -215,6 +216,11 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
   const handleSaveWorker = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.fullName.trim() || !formData.employeeId.trim()) return;
+    const wtError = validateWorkingTime(formData.workingTime);
+    if (wtError) {
+      alert(wtError);
+      return;
+    }
 
     const workerToSave: Worker = {
       id: editingWorker ? editingWorker.id : 'worker-' + Date.now(),
@@ -326,8 +332,8 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
             className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 outline-none focus:border-emerald-500"
           >
             <option value="ALL">All Working Times</option>
-            {WORKING_TIME_OPTIONS.map(opt => (
-              <option key={opt.label} value={opt.label}>{opt.label}</option>
+            {workingTimeFilterOptions(workers.map(w => w.workingTime)).map(label => (
+              <option key={label} value={label}>{label}</option>
             ))}
           </select>
 
@@ -599,20 +605,15 @@ export const WorkerManagement: React.FC<WorkerManagementProps> = ({
                   />
                 </div>
 
-                {/* REQUIREMENT 8: REQUIRED WORKING TIME FIELD WITH 3 OPTIONS */}
+                {/* WORKING TIME: presets or fully custom start / end */}
                 <div>
                   <label className="text-xs font-bold text-emerald-400 block mb-1">
                     Assigned Working Time * (Required)
                   </label>
-                  <select
+                  <WorkingTimePicker
                     value={formData.workingTime}
-                    onChange={e => setFormData({ ...formData, workingTime: e.target.value as WorkingTimeOption })}
-                    className="w-full bg-slate-950 border-2 border-emerald-600/50 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-emerald-500 font-mono"
-                  >
-                    <option value="09:00 AM – 05:00 PM">09:00 AM – 05:00 PM (8 Hours)</option>
-                    <option value="09:00 AM – 07:00 PM">09:00 AM – 07:00 PM (10 Hours)</option>
-                    <option value="09:00 AM – 09:00 PM">09:00 AM – 09:00 PM (12 Hours)</option>
-                  </select>
+                    onChange={label => setFormData({ ...formData, workingTime: label })}
+                  />
                 </div>
 
                 {/* REQUIREMENT 6: MONTHLY SALARY BASIS (30 DAYS) */}

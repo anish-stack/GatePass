@@ -25,6 +25,11 @@ export const env = {
   autoSeed: bool(process.env.AUTO_SEED, true),
   allowDbReset: bool(process.env.ALLOW_DB_RESET, true),
   bodyLimit: process.env.BODY_LIMIT || '15mb',
+  // Photos are stored on disk (DB keeps only the URL path)
+  uploadDir: process.env.UPLOAD_DIR || './uploads',
+  // Optional Redis cache. Empty = cache disabled, app works normally.
+  redisUrl: process.env.REDIS_URL || '',
+  cacheTtlSeconds: parseInt(process.env.CACHE_TTL_SECONDS || '120', 10),
 };
 
 if (env.isProd && env.jwtSecret === 'dev_only_insecure_secret_change_me') {

@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import { env } from './config/env.js';
 import apiRoutes from './routes/index.js';
 import { notFound, errorHandler } from './middleware/error.js';
+import { UPLOAD_ROOT } from './utils/photoStore.js';
 
 const app = express();
 
@@ -27,6 +28,13 @@ app.use(compression());
 app.use(express.json({ limit: env.bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: env.bodyLimit }));
 if (!env.isProd) app.use(morgan('dev'));
+
+// Photos on disk. Filenames are random 128-bit names (unguessable); long browser cache.
+// Must stay BEFORE /api routes (those require a JWT, <img> tags cannot send one).
+app.use(
+  '/api/files',
+  express.static(UPLOAD_ROOT, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny', fallthrough: false })
+);
 
 app.get('/', (req, res) => res.json({ name: 'GatePass Pro API', docs: '/api/health' }));
 app.use('/api', apiRoutes);

@@ -2,6 +2,17 @@ import { Worker, WorkerFile, nextSeq, PUBLIC } from '../models/index.js';
 import { addAuditLog } from './audit.service.js';
 import { HttpError } from '../utils/httpError.js';
 import { genId } from '../utils/dateUtils.js';
+import { validateWorkingTime } from '../utils/timeCalculations.js';
+import { normalizePhoto, deletePhoto, isLocalPhoto } from '../utils/photoStore.js';
+import { cached, bump } from '../utils/cache.js';
+
+function checkWorkingTime(label) {
+  try {
+    return validateWorkingTime(label);
+  } catch (e) {
+    throw new HttpError(400, e.message);
+  }
+}
 
 // Fields a security guard must never receive
 const GUARD_HIDDEN = '-bankAccountNumber -bankIfsc -aadhaarNumber -panNumber -documents -address';
@@ -16,10 +27,12 @@ const clean = obj => {
 };
 
 export async function getWorkers({ forGuard = false } = {}) {
-  return Worker.find()
-    .sort({ seq: 1 })
-    .select(forGuard ? `${PUBLIC} ${GUARD_HIDDEN}` : PUBLIC)
-    .lean();
+  return cached('workers', { forGuard }, () =>
+    Worker.find()
+      .sort({ seq: 1 })
+      .select(forGuard ? `${PUBLIC} ${GUARD_HIDDEN}` : PUBLIC)
+      .lean()
+  );
 }
 
 export async function getWorkerById(id) {
@@ -35,15 +48,22 @@ export async function createWorker(workerData, actor) {
   const dup = await Worker.exists({ employeeId: data.employeeId });
   if (dup) throw new HttpError(400, `Employee ID ${data.employeeId} already exists.`);
 
+  const workingTime = data.workingTime ? checkWorkingTime(data.workingTime) : undefined;
+  const profilePhoto =
+    (await normalizePhoto(data.profilePhoto, 'profile')) ||
+    'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80';
+
   const doc = await Worker.create({
     ...data,
+    ...(workingTime ? { workingTime } : {}),
     id,
     recordSource: 'live',
     documents: [],
-    profilePhoto: data.profilePhoto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80',
+    profilePhoto,
     monthlySalary: Number(data.monthlySalary) || 15000,
     seq: await nextSeq('worker'),
   });
+  await bump('workers');
   const newWorker = await getWorkerById(doc.id);
 
   await addAuditLog({
@@ -69,9 +89,24 @@ export async function updateWorker(id, updates, actor) {
     const dup = await Worker.exists({ employeeId: data.employeeId, id: { $ne: id } });
     if (dup) throw new HttpError(400, `Employee ID ${data.employeeId} already exists.`);
   }
-  data.monthlySalary = data.monthlySalary ? Number(data.monthlySalary) : old.monthlySalary;
+  if (data.monthlySalary !== undefined && data.monthlySalary !== '') {
+    const sal = Number(data.monthlySalary);
+    if (isNaN(sal) || sal < 0) throw new HttpError(400, 'Monthly salary must be 0 or more.');
+    data.monthlySalary = sal;
+  } else {
+    data.monthlySalary = old.monthlySalary;
+  }
+  if (data.workingTime !== undefined) data.workingTime = checkWorkingTime(data.workingTime);
+
+  let replacedPhoto = null;
+  if (data.profilePhoto !== undefined) {
+    data.profilePhoto = (await normalizePhoto(data.profilePhoto, 'profile')) || old.profilePhoto;
+    if (data.profilePhoto !== old.profilePhoto && isLocalPhoto(old.profilePhoto)) replacedPhoto = old.profilePhoto;
+  }
 
   await Worker.updateOne({ id }, { $set: data }, { runValidators: true });
+  if (replacedPhoto) await deletePhoto(replacedPhoto);
+  await bump('workers');
   const updated = await getWorkerById(id);
 
   await addAuditLog({
@@ -93,6 +128,8 @@ export async function deleteWorker(id, actor) {
 
   await Worker.deleteOne({ id });
   await WorkerFile.deleteMany({ workerId: id });
+  if (isLocalPhoto(worker.profilePhoto)) await deletePhoto(worker.profilePhoto);
+  await bump('workers');
 
   await addAuditLog({
     actorRole: 'ADMIN',
@@ -158,6 +195,7 @@ export async function addWorkerDocument(workerId, { type, fileName, dataUrl }, a
     hasFile: true,
   });
   await worker.save();
+  await bump('workers');
 
   await addAuditLog({
     actorRole: 'ADMIN',
@@ -186,6 +224,7 @@ export async function deleteWorkerDocument(workerId, docId, actor) {
 
   worker.documents = worker.documents.filter(d => d.id !== docId);
   await worker.save();
+  await bump('workers');
   await WorkerFile.deleteOne({ id: docId, workerId });
 
   await addAuditLog({

@@ -1,13 +1,12 @@
 export type Role = 'ADMIN' | 'GUARD';
 export type RecordSource = 'seed' | 'live';
 
-export type WorkingTimeOption =
-  | '09:00 AM – 05:00 PM'
-  | '09:00 AM – 07:00 PM'
-  | '09:00 AM – 09:00 PM';
+// Any "hh:mm AM – hh:mm PM" label. Presets: 09:00 AM – 05:00 PM / 07:00 PM / 09:00 PM. Custom times allowed.
+export type WorkingTimeOption = string;
 
 export interface WorkingTimeDetails {
   label: WorkingTimeOption;
+  overnight?: boolean; // end time is on the next day
   startTime24: string; // '09:00'
   endTime24: string;   // '17:00' | '19:00' | '21:00'
   startTime12: string; // '09:00 AM'
@@ -282,6 +281,9 @@ export interface SystemAuditLog {
     | 'GUARD_CREATED'
     | 'RULES_UPDATED'
     | 'ATTENDANCE_OVERRIDE'
+    | 'ATTENDANCE_ADDED'
+    | 'ATTENDANCE_DELETED'
+    | 'ATTENDANCE_REOPENED'
     | 'PAYROLL_GENERATED'
     | 'ADVANCE_CREATED'
     | 'ADVANCE_UPDATED'

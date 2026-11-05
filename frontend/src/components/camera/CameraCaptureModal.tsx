@@ -37,6 +37,7 @@ interface CameraCaptureModalProps {
   calculatedLateMinutes?: number;
   submitting?: boolean;
   otMinimumMinutes?: number;
+  gracePeriodMinutes?: number; // same grace rule the server applies
   onConfirm: (capturedPhotoDataUrl: string, calculatedLateMinutes: number, overtimeMinutesOverride?: number) => void;
   onClose: () => void;
 }
@@ -55,6 +56,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   calculatedLateMinutes: initialLate,
   submitting = false,
   otMinimumMinutes = 30,
+  gracePeriodMinutes = 0,
   onConfirm,
   onClose,
 }) => {
@@ -85,12 +87,12 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
       const now = new Date();
       setCurrentTimeStr(formatTime12(now));
       if (mode === 'CHECK_IN') {
-        const computed = calculateLateMinutes(now, worker.workingTime);
+        const computed = calculateLateMinutes(now, worker.workingTime, gracePeriodMinutes);
         setLateMins(computed);
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [mode, worker.workingTime]);
+  }, [mode, worker.workingTime, gracePeriodMinutes]);
 
   // Check available camera devices
   useEffect(() => {
@@ -139,12 +141,25 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
           facingMode: { ideal: facingMode },
         },
         audio: false,
       });
+
+      // Sharper photos: ask for continuous autofocus / exposure where the device supports it
+      try {
+        const track = mediaStream.getVideoTracks()[0];
+        const caps: any = track?.getCapabilities?.() || {};
+        const advanced: any[] = [];
+        if (caps.focusMode?.includes?.('continuous')) advanced.push({ focusMode: 'continuous' });
+        if (caps.exposureMode?.includes?.('continuous')) advanced.push({ exposureMode: 'continuous' });
+        if (advanced.length) await track.applyConstraints({ advanced } as any);
+      } catch {
+        /* optional */
+      }
 
       streamRef.current = mediaStream;
       setStream(mediaStream);
@@ -245,79 +260,97 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
    */
   const handleCapturePhoto = () => {
     if (!canCapture) return;
+    const video = videoRef.current;
+    const hasLiveFrame = !isUsingSimulatedCamera && !cameraError && !!video && video.videoWidth > 0 && video.videoHeight > 0;
+
+    // Never replace a real camera with a fake frame: if the live frame is not ready yet, ask to retry.
+    if (!hasLiveFrame && !isUsingSimulatedCamera) {
+      alert('Camera frame is not ready yet. Wait a second and tap Capture again.');
+      return;
+    }
+
     const canvas = canvasRef.current || document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 720;
+    // Keep the camera's real aspect ratio (portrait phones are 9:16, webcams 16:9). Cap long side at 1600px.
+    const srcW = hasLiveFrame ? video!.videoWidth : 1280;
+    const srcH = hasLiveFrame ? video!.videoHeight : 720;
+    const MAX_SIDE = 1600;
+    const ratio = Math.min(1, MAX_SIDE / Math.max(srcW, srcH));
+    canvas.width = Math.round(srcW * ratio);
+    canvas.height = Math.round(srcH * ratio);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Stamp scale: design values below are for a 1280px wide frame
+    const k = Math.max(0.6, Math.min(canvas.width, 1600) / 1280) * (canvas.width < canvas.height ? 0.85 : 1);
+    const px = (n: number) => Math.round(n * k);
 
     const now = new Date();
     const dateFormatted = formatDisplayDate(now);
     const timeFormatted = formatTime12(now);
     const modeLabel = mode === 'CHECK_IN' ? 'CHECK-IN' : 'CHECK-OUT';
 
-    if (!isUsingSimulatedCamera && !cameraError && videoRef.current && videoRef.current.videoWidth > 0) {
-      const video = videoRef.current;
-      // Draw video frame onto canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (hasLiveFrame) {
+      ctx.drawImage(video!, 0, 0, canvas.width, canvas.height); // no stretching: canvas == video aspect
     } else {
-      // High-resolution realistic gate CCTV canvas frame for simulated environments
+      // Simulated CCTV frame (demo only, VITE_ALLOW_SIMULATED_CAMERA=true)
       drawSimulatedFrame(ctx, canvas.width, canvas.height);
     }
 
     // DRAW PERMANENT INDUSTRIAL TIMESTAMP & WORKER WATERMARK OVERLAY
-    const bannerHeight = 110;
+    const bannerHeight = px(110);
     const yTop = canvas.height - bannerHeight;
+    const pad = px(24);
 
-    // Dark semi-transparent background with border for maximum contrast & visibility
     ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
     ctx.fillRect(0, yTop, canvas.width, bannerHeight);
 
-    // Accent line at top of banner
     ctx.fillStyle = mode === 'CHECK_IN' ? '#10b981' : '#38bdf8';
-    ctx.fillRect(0, yTop, canvas.width, 5);
+    ctx.fillRect(0, yTop, canvas.width, px(5));
 
     // Left block: Worker Name, Employee ID, Attendance Type
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 26px sans-serif';
+    ctx.font = `bold ${px(26)}px sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(`${worker.fullName}`, 24, yTop + 38);
+    ctx.fillText(`${worker.fullName}`, pad, yTop + px(38));
 
-    ctx.font = 'bold 18px monospace';
+    ctx.font = `bold ${px(18)}px monospace`;
     ctx.fillStyle = '#38bdf8';
-    ctx.fillText(`${worker.employeeId}`, 24, yTop + 68);
+    ctx.fillText(`${worker.employeeId}`, pad, yTop + px(68));
+    const idWidth = ctx.measureText(`${worker.employeeId}`).width;
 
-    ctx.font = 'bold 16px sans-serif';
+    ctx.font = `bold ${px(16)}px sans-serif`;
     ctx.fillStyle = mode === 'CHECK_IN' ? '#34d399' : '#60a5fa';
-    ctx.fillText(`• ${modeLabel}`, 150, yTop + 68);
+    ctx.fillText(`• ${modeLabel}`, pad + idWidth + px(14), yTop + px(68));
 
-    ctx.font = '14px sans-serif';
+    ctx.font = `${px(14)}px sans-serif`;
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText(`Working Time: ${worker.workingTime}`, 24, yTop + 95);
+    ctx.fillText(`Working Time: ${worker.workingTime}`, pad, yTop + px(95));
 
     // Right block: EXACT STAMPED DATE & TIME + GUARD AUDIT
     ctx.textAlign = 'right';
-    ctx.fillStyle = '#f59e0b'; // Amber bold timestamp
-    ctx.font = 'bold 26px monospace';
-    ctx.fillText(`${dateFormatted} | ${timeFormatted}`, canvas.width - 24, yTop + 40);
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = `bold ${px(26)}px monospace`;
+    ctx.fillText(`${dateFormatted} | ${timeFormatted}`, canvas.width - pad, yTop + px(40));
 
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = '15px sans-serif';
+    ctx.font = `${px(15)}px sans-serif`;
     ctx.fillText(
       `Marked By: ${guardSession.name} (${guardSession.guardCode || (guardSession.role === 'ADMIN' ? 'Admin' : 'Guard')}) • ${guardSession.gate || 'Gate 1'}`,
-      canvas.width - 24,
-      yTop + 70
+      canvas.width - pad,
+      yTop + px(70)
     );
 
     ctx.fillStyle = '#10b981';
-    ctx.font = 'bold 13px monospace';
+    ctx.font = `bold ${px(13)}px monospace`;
     ctx.fillText(
       `${isUsingSimulatedCamera ? 'SIMULATED FRAME (NO CAMERA)' : 'VERIFIED GATE CCTV SNAPSHOT'} • FACING: ${facingMode.toUpperCase()}`,
-      canvas.width - 24,
-      yTop + 95
+      canvas.width - pad,
+      yTop + px(95)
     );
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     setCapturedPhoto(dataUrl);
   };
 
@@ -510,7 +543,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                   <img
                     src={capturedPhoto}
                     alt="Captured Live Photo with Timestamp"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain bg-black"
                   />
                 ) : (
                   <>
@@ -519,7 +552,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                       autoPlay
                       playsInline
                       muted
-                      className={`w-full h-full object-cover ${cameraReady ? 'block' : 'hidden'} ${facingMode === 'user' ? '-scale-x-100' : ''}`}
+                      className={`w-full h-full object-contain ${cameraReady ? 'block' : 'hidden'} ${facingMode === 'user' ? '-scale-x-100' : ''}`}
                     />
                     {!cameraReady && (
                       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black">

@@ -34,7 +34,7 @@ import {
   calculateCheckOutMetrics,
   formatMinutesToDuration,
   formatMinutesToReadable,
-  WORKING_TIME_OPTIONS,
+  workingTimeFilterOptions,
   getWorkingTimeDetails,
   isWithinCheckInWindow,
   getCheckInWindow,
@@ -251,7 +251,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
       return;
     }
 
-    const late = calculateLateMinutes(new Date(), worker.workingTime);
+    const late = calculateLateMinutes(new Date(), worker.workingTime, rules?.gracePeriodMinutes ?? 0);
     setCameraModalConfig({
       isOpen: true,
       mode: 'CHECK_IN',
@@ -607,8 +607,8 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
               className="bg-slate-950 border border-slate-700 text-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500 font-medium font-mono"
             >
               <option value="ALL">All Working Times</option>
-              {WORKING_TIME_OPTIONS.map(opt => (
-                <option key={opt.label} value={opt.label}>{opt.label}</option>
+              {workingTimeFilterOptions(workers.map(w => w.workingTime)).map(label => (
+                <option key={label} value={label}>{label}</option>
               ))}
             </select>
           </div>
@@ -769,6 +769,7 @@ export const GuardAttendanceTerminal: React.FC<GuardAttendanceTerminalProps> = (
           existingCheckInDateTime={cameraModalConfig.existingAttendance?.checkInDateTime}
           submitting={submitting}
           otMinimumMinutes={rules?.otMinimumMinutes ?? 30}
+          gracePeriodMinutes={rules?.gracePeriodMinutes ?? 0}
           onConfirm={(photo, late, otOverride) => {
             if (cameraModalConfig.mode === 'CHECK_IN') {
               handleConfirmCheckIn(photo, late);

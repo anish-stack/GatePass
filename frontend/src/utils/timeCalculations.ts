@@ -30,9 +30,112 @@ export const WORKING_TIME_OPTIONS: WorkingTimeDetails[] = [
   },
 ];
 
+const LABEL_RE = /^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*[\u2013\u2014-]\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$/i;
+export const MIN_SHIFT_MINUTES = 30;
+export const MAX_SHIFT_MINUTES = 20 * 60;
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+function to24Minutes(h: number, m: number, ap: string): number {
+  let hh = h % 12;
+  if (/pm/i.test(ap)) hh += 12;
+  return hh * 60 + m;
+}
+function minutesToLabel12(mins: number): string {
+  const total = ((mins % 1440) + 1440) % 1440;
+  const h24 = Math.floor(total / 60);
+  const ap = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${pad2(h12)}:${pad2(total % 60)} ${ap}`;
+}
+function minutesToTime24(mins: number): string {
+  const total = ((mins % 1440) + 1440) % 1440;
+  return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+}
+export function time24ToMinutes(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '').trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+/** Parse any "hh:mm AM \u2013 hh:mm PM" label (presets or custom). null if invalid. */
+export function parseWorkingTime(label?: string) {
+  const m = LABEL_RE.exec(String(label || ''));
+  if (!m) return null;
+  const h1 = Number(m[1]), m1 = Number(m[2]), h2 = Number(m[4]), m2 = Number(m[5]);
+  if (h1 < 1 || h1 > 12 || h2 < 1 || h2 > 12 || m1 > 59 || m2 > 59) return null;
+  const startMin = to24Minutes(h1, m1, m[3]);
+  const endMin = to24Minutes(h2, m2, m[6]);
+  const overnight = endMin <= startMin;
+  const normalMinutes = overnight ? endMin + 1440 - startMin : endMin - startMin;
+  return { startMin, endMin, overnight, normalMinutes };
+}
+
+/** Build canonical label from two 24h "HH:MM" values, or null if either is invalid. */
+export function buildWorkingTimeLabel(start24: string, end24: string): string | null {
+  const s = time24ToMinutes(start24);
+  const e = time24ToMinutes(end24);
+  if (s === null || e === null) return null;
+  return `${minutesToLabel12(s)} \u2013 ${minutesToLabel12(e)}`;
+}
+
+/** Returns an error message, or null when the label is a valid shift. */
+export function validateWorkingTime(label?: string): string | null {
+  const p = parseWorkingTime(label);
+  if (!p) return 'Select a valid start and end time.';
+  if (p.normalMinutes < MIN_SHIFT_MINUTES || p.normalMinutes > MAX_SHIFT_MINUTES) {
+    return 'Shift must be between 30 minutes and 20 hours.';
+  }
+  return null;
+}
+
+/** label -> { start24, end24 } for time inputs */
+export function splitWorkingTime(label?: string): { start24: string; end24: string } | null {
+  const p = parseWorkingTime(label);
+  return p ? { start24: minutesToTime24(p.startMin), end24: minutesToTime24(p.endMin) } : null;
+}
+
 export function getWorkingTimeDetails(workingTime?: string): WorkingTimeDetails {
-  const match = WORKING_TIME_OPTIONS.find(o => o.label === workingTime);
-  return match || WORKING_TIME_OPTIONS[1]; // default to 09:00 AM – 07:00 PM
+  const p = parseWorkingTime(workingTime);
+  if (!p || p.normalMinutes < MIN_SHIFT_MINUTES || p.normalMinutes > MAX_SHIFT_MINUTES) {
+    return { ...WORKING_TIME_OPTIONS[1], overnight: false }; // legacy fallback: 09:00 AM \u2013 07:00 PM
+  }
+  return {
+    label: `${minutesToLabel12(p.startMin)} \u2013 ${minutesToLabel12(p.endMin)}`,
+    startTime24: minutesToTime24(p.startMin),
+    endTime24: minutesToTime24(p.endMin),
+    startTime12: minutesToLabel12(p.startMin),
+    endTime12: minutesToLabel12(p.endMin),
+    normalWorkingMinutes: p.normalMinutes,
+    normalWorkingHours: Math.round((p.normalMinutes / 60) * 100) / 100,
+    overnight: p.overnight,
+  };
+}
+
+/** Scheduled shift start for a punch. Day shifts: same day. Overnight: nearest start (yesterday/today/tomorrow). */
+export function shiftStartFor(date: Date, details: WorkingTimeDetails): Date {
+  const [sh, sm] = details.startTime24.split(':').map(Number);
+  const base = new Date(date);
+  base.setHours(sh, sm, 0, 0);
+  if (!details.overnight) return base;
+  let best = base;
+  for (const delta of [-1, 1]) {
+    const c = new Date(base);
+    c.setDate(c.getDate() + delta);
+    if (Math.abs(c.getTime() - date.getTime()) < Math.abs(best.getTime() - date.getTime())) best = c;
+  }
+  return best;
+}
+
+/** Filter dropdown options = presets + any custom shift currently in use */
+export function workingTimeFilterOptions(inUse: Array<string | undefined> = []): string[] {
+  const set = new Set<string>(WORKING_TIME_OPTIONS.map(o => o.label));
+  inUse.forEach(l => {
+    if (l && parseWorkingTime(l)) set.add(getWorkingTimeDetails(l).label);
+  });
+  return Array.from(set);
 }
 
 /**
@@ -125,10 +228,7 @@ export function calculateLateMinutes(
   gracePeriodMinutes: number = 0
 ): number {
   const details = getWorkingTimeDetails(workingTime);
-  const [startHours, startMins] = details.startTime24.split(':').map(Number);
-  
-  const expectedCheckIn = new Date(checkInDate);
-  expectedCheckIn.setHours(startHours, startMins, 0, 0);
+  const expectedCheckIn = shiftStartFor(checkInDate, details);
 
   const diffMs = checkInDate.getTime() - expectedCheckIn.getTime();
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
@@ -159,11 +259,9 @@ export function calculateCheckOutMetrics(
   overtimeMinutes: number;
 } {
   const details = getWorkingTimeDetails(workingTime);
-  const [endHours, endMins] = details.endTime24.split(':').map(Number);
 
-  // Scheduled end time on the day of check-in
-  const scheduledEndTime = new Date(checkInDate);
-  scheduledEndTime.setHours(endHours, endMins, 0, 0);
+  // Scheduled end = shift start + normal shift length (handles overnight shifts)
+  const scheduledEndTime = new Date(shiftStartFor(checkInDate, details).getTime() + details.normalWorkingMinutes * 60000);
 
   // Total elapsed time between check-in and check-out
   const totalMs = checkOutDate.getTime() - checkInDate.getTime();
@@ -225,12 +323,8 @@ export function applyOtThreshold(overtimeMinutes: number, minimumMinutes: number
  */
 export function getCheckInWindow(workingTime: string, date: Date = new Date(), opensBeforeMinutes: number = 120) {
   const d = getWorkingTimeDetails(workingTime);
-  const [sh, sm] = d.startTime24.split(':').map(Number);
-  const [eh, em] = d.endTime24.split(':').map(Number);
-  const start = new Date(date);
-  start.setHours(sh, sm, 0, 0);
-  const end = new Date(date);
-  end.setHours(eh, em, 0, 0);
+  const start = shiftStartFor(date, d);
+  const end = new Date(start.getTime() + d.normalWorkingMinutes * 60000);
   const opens = new Date(start.getTime() - Math.max(0, opensBeforeMinutes || 0) * 60000);
   return { opens, start, end };
 }

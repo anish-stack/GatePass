@@ -63,6 +63,10 @@ router.get('/attendance', STAFF, attendance.list);
 router.post('/attendance/check-in', STAFF, attendance.checkIn);
 router.post('/attendance/check-out', STAFF, attendance.checkOut);
 router.post('/attendance/override', ADMIN, attendance.override);
+router.post('/attendance/manual', ADMIN, attendance.addManual);
+router.patch('/attendance/:id', ADMIN, attendance.edit);
+router.post('/attendance/:id/reopen', ADMIN, attendance.reopen);
+router.delete('/attendance/:id', ADMIN, attendance.remove);
 
 // Rules
 router.get('/rules', STAFF, rules.get);
