@@ -15,12 +15,24 @@ app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
-    origin(origin, cb) {
-      // allow same-origin / curl (no origin) and whitelisted frontends
-      if (!origin || env.clientUrls.includes('*') || env.clientUrls.includes(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked for origin ${origin}`));
+    origin(origin, callback) {
+      // Allow server-to-server, curl, Postman
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const allowedOrigins = env.clientUrls;
+
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.error(`[CORS BLOCKED] Origin: ${origin}`);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 app.use(compression());
