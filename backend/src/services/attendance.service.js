@@ -37,8 +37,24 @@ export async function getAttendance(filters = {}, { withPhotos = true } = {}) {
   if (filters.status) conds.push({ status: String(filters.status) });
   const q = conds.length ? { $and: conds } : {};
 
-  const select = withPhotos ? PUBLIC : `${PUBLIC} -checkInPhoto -checkOutPhoto`;
-  return cached('att', { filters: q, withPhotos }, () => Attendance.find(q).sort({ seq: -1 }).select(select).lean());
+  // Legacy base64 photos are stripped INSIDE Mongo ($$REMOVE) so they never cross the network.
+  // After running migrate-photos.js this is just a safety net.
+  const strip = f => ({ $cond: [{ $regexMatch: { input: { $ifNull: [`$${f}`, ''] }, regex: '^data:image/' } }, '$$REMOVE', `$${f}`] });
+  const pipeline = [
+    { $match: q },
+    { $sort: { seq: -1 } },
+    { $set: withPhotos ? { checkInPhoto: strip('checkInPhoto'), checkOutPhoto: strip('checkOutPhoto'), workerPhoto: strip('workerPhoto') } : { workerPhoto: strip('workerPhoto') } },
+    { $unset: withPhotos ? ['_id', 'seq'] : ['_id', 'seq', 'checkInPhoto', 'checkOutPhoto'] },
+  ];
+
+  // short TTL: guard check-in must show on admin screen fast even if another server/Redis did the write
+  return cached('att', { filters: q, withPhotos }, async () => {
+    const t0 = Date.now();
+    const rows = await Attendance.aggregate(pipeline).allowDiskUse(true);
+    const ms = Date.now() - t0;
+    if (ms > 500) console.warn(`[Attendance] slow query ${ms}ms rows=${rows.length} q=${JSON.stringify(q)}`);
+    return rows;
+  }, 15);
 }
 
 /** Latest record checked-in but not checked-out within last 24 hours */

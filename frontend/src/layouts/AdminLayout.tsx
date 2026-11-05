@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useShifts } from '../hooks/useShifts';
 import { NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -37,6 +38,7 @@ const DEFAULT_RULES: AttendanceRulesConfig = {
 };
 
 export const AdminLayout: React.FC = () => {
+  useShifts(); // load standard working times once
   const { session } = useAuth();
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [guards, setGuards] = useState<GuardUser[]>([]);

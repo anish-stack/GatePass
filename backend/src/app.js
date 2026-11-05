@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -43,9 +44,10 @@ if (!env.isProd) app.use(morgan('dev'));
 
 // Photos on disk. Filenames are random 128-bit names (unguessable); long browser cache.
 // Must stay BEFORE /api routes (those require a JWT, <img> tags cannot send one).
+// ONLY the photos folder is public. KYC docs (uploads/docs) are private and served by an authenticated route.
 app.use(
-  '/api/files',
-  express.static(UPLOAD_ROOT, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny', fallthrough: false })
+  '/api/files/photos',
+  express.static(path.join(UPLOAD_ROOT, 'photos'), { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny', fallthrough: false })
 );
 
 app.get('/', (req, res) => res.json({ name: 'GatePass Pro API', docs: '/api/health' }));

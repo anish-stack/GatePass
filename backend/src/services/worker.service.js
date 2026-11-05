@@ -3,7 +3,7 @@ import { addAuditLog } from './audit.service.js';
 import { HttpError } from '../utils/httpError.js';
 import { genId } from '../utils/dateUtils.js';
 import { validateWorkingTime } from '../utils/timeCalculations.js';
-import { normalizePhoto, deletePhoto, isLocalPhoto } from '../utils/photoStore.js';
+import { normalizePhoto, deletePhoto, isLocalPhoto, saveDocumentFile, deleteDocumentFile } from '../utils/photoStore.js';
 import { cached, bump } from '../utils/cache.js';
 
 function checkWorkingTime(label) {
@@ -15,7 +15,7 @@ function checkWorkingTime(label) {
 }
 
 // Fields a security guard must never receive
-const GUARD_HIDDEN = '-bankAccountNumber -bankIfsc -aadhaarNumber -panNumber -documents -address';
+const GUARD_HIDDEN_FIELDS = ['bankAccountNumber', 'bankIfsc', 'aadhaarNumber', 'panNumber', 'documents', 'address'];
 
 // Fields clients may never set directly
 // documents are managed only through the /documents endpoints (real file upload)
@@ -27,12 +27,19 @@ const clean = obj => {
 };
 
 export async function getWorkers({ forGuard = false } = {}) {
-  return cached('workers', { forGuard }, () =>
-    Worker.find()
-      .sort({ seq: 1 })
-      .select(forGuard ? `${PUBLIC} ${GUARD_HIDDEN}` : PUBLIC)
-      .lean()
-  );
+  // legacy base64 profile photo is removed inside Mongo so it is never sent (run migrate-photos.js to fix permanently)
+  const pipeline = [
+    { $sort: { seq: 1 } },
+    {
+      $set: {
+        profilePhoto: {
+          $cond: [{ $regexMatch: { input: { $ifNull: ['$profilePhoto', ''] }, regex: '^data:image/' } }, '$$REMOVE', '$profilePhoto'],
+        },
+      },
+    },
+    { $unset: ['_id', 'seq', ...(forGuard ? GUARD_HIDDEN_FIELDS : [])] },
+  ];
+  return cached('workers', { forGuard }, () => Worker.aggregate(pipeline).allowDiskUse(true));
 }
 
 export async function getWorkerById(id) {
@@ -127,6 +134,8 @@ export async function deleteWorker(id, actor) {
   if (!worker) return false;
 
   await Worker.deleteOne({ id });
+  const files = await WorkerFile.find({ workerId: id }).select('filePath').lean();
+  await Promise.all(files.map(f => deleteDocumentFile(f.filePath)));
   await WorkerFile.deleteMany({ workerId: id });
   if (isLocalPhoto(worker.profilePhoto)) await deletePhoto(worker.profilePhoto);
   await bump('workers');
@@ -173,15 +182,21 @@ export async function addWorkerDocument(workerId, { type, fileName, dataUrl }, a
   const now = new Date();
   const safeName = String(fileName || type).replace(/[^\w.\- ()]/g, '_').slice(0, 120);
 
-  await WorkerFile.create({
-    id: docId,
-    workerId,
-    mimeType,
-    fileName: safeName,
-    size: data.length,
-    data,
-    createdAt: now.toISOString(),
-  });
+  const filePath = await saveDocumentFile(workerId, docId, mimeType, data); // file on disk, DB keeps only the path
+  try {
+    await WorkerFile.create({
+      id: docId,
+      workerId,
+      mimeType,
+      fileName: safeName,
+      size: data.length,
+      filePath,
+      createdAt: now.toISOString(),
+    });
+  } catch (err) {
+    await deleteDocumentFile(filePath);
+    throw err;
+  }
 
   worker.documents.push({
     id: docId,
@@ -225,6 +240,8 @@ export async function deleteWorkerDocument(workerId, docId, actor) {
   worker.documents = worker.documents.filter(d => d.id !== docId);
   await worker.save();
   await bump('workers');
+  const wf = await WorkerFile.findOne({ id: docId, workerId }).select('filePath').lean();
+  await deleteDocumentFile(wf?.filePath);
   await WorkerFile.deleteOne({ id: docId, workerId });
 
   await addAuditLog({

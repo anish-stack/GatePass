@@ -61,3 +61,32 @@ export async function deletePhoto(url) {
     /* already gone */
   }
 }
+
+// ================= KYC DOCUMENTS (private, NOT served by static; only via authenticated endpoint) =================
+export const DOC_ROOT = path.join(UPLOAD_ROOT, 'docs');
+const DOC_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
+const seg = s => String(s).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+
+/** Save KYC file. Returns relative path stored in DB, e.g. worker-1/doc-17.jpg */
+export async function saveDocumentFile(workerId, docId, mime, buf) {
+  const rel = `${seg(workerId)}/${seg(docId)}.${DOC_EXT[mime] || 'bin'}`;
+  const abs = path.join(DOC_ROOT, rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, buf, { flag: 'wx' });
+  return rel;
+}
+
+export function documentAbsPath(rel) {
+  const abs = path.resolve(DOC_ROOT, String(rel || ''));
+  if (!abs.startsWith(DOC_ROOT + path.sep)) throw new HttpError(400, 'Invalid document path.');
+  return abs;
+}
+
+export async function deleteDocumentFile(rel) {
+  if (!rel) return;
+  try {
+    await fs.unlink(documentAbsPath(rel));
+  } catch {
+    /* already gone */
+  }
+}

@@ -5,6 +5,8 @@ import { connectDB } from './config/db.js';
 import { initRedis, closeRedis } from './config/redis.js';
 import { UPLOAD_ROOT } from './utils/photoStore.js';
 import { seedIfEmpty, ensureAdmin } from './services/seed.service.js';
+import { ensureDefaultShifts } from './services/shift.service.js';
+import { Attendance } from './models/index.js';
 import { cleanupPlaceholderDocuments } from './services/worker.service.js';
 import app from './app.js';
 
@@ -14,6 +16,8 @@ async function start() {
   await initRedis();
   if (env.autoSeed) await seedIfEmpty();
   else await ensureAdmin();
+  await ensureDefaultShifts();
+  Attendance.createIndexes().catch(e => console.warn('[Index] attendance:', e.message)); // background
   await cleanupPlaceholderDocuments();
 
   const server = app.listen(env.port, '0.0.0.0', () => {

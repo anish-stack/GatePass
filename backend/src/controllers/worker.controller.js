@@ -1,5 +1,6 @@
 import { asyncHandler, HttpError } from '../utils/httpError.js';
 import * as svc from '../services/worker.service.js';
+import { documentAbsPath } from '../utils/photoStore.js';
 
 export const list = asyncHandler(async (req, res) => {
   res.json(await svc.getWorkers({ forGuard: req.user.role === 'GUARD' }));
@@ -27,11 +28,26 @@ export const addDocument = asyncHandler(async (req, res) => {
 
 export const documentFile = asyncHandler(async (req, res) => {
   const file = await svc.getWorkerDocumentFile(req.params.id, req.params.docId);
-  res.setHeader('Content-Type', file.mimeType);
-  res.setHeader('Content-Length', file.size || file.data.length);
-  res.setHeader('Content-Disposition', `inline; filename="${file.fileName || 'document'}"`);
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.end(Buffer.from(file.data.buffer ? file.data.buffer : file.data));
+  const name = String(file.fileName || 'document').replace(/"/g, '');
+  const headers = {
+    'Content-Type': file.mimeType,
+    'Content-Disposition': `inline; filename="${name}"`,
+    'Cache-Control': 'private, no-store',
+  };
+  if (file.filePath) {
+    // new: stream from disk
+    await new Promise((resolve, reject) =>
+      res.sendFile(documentAbsPath(file.filePath), { dotfiles: 'allow', headers }, err =>
+        err ? reject(new HttpError(404, 'Document file missing on server disk.')) : resolve()
+      )
+    );
+    return;
+  }
+  // legacy: still in Mongo (until migrate-photos.js is run)
+  const buf = file.data?.buffer ? Buffer.from(file.data.buffer) : Buffer.from(file.data || []);
+  Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+  res.setHeader('Content-Length', buf.length);
+  res.end(buf);
 });
 
 export const removeDocument = asyncHandler(async (req, res) => {

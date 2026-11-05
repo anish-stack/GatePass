@@ -136,6 +136,10 @@ const AttendanceSchema = new Schema(
   baseOptions
 );
 AttendanceSchema.index({ workerId: 1, date: 1 });
+// List query = filter by date + sort by seq. Without this Mongo walks the whole seq index and
+// loads EVERY document (with legacy base64 photos) -> timeouts.
+AttendanceSchema.index({ date: 1, seq: -1 });
+AttendanceSchema.index({ status: 1, date: 1 });
 
 // ================= RULES (singleton) =================
 const RulesSchema = new Schema(
@@ -264,7 +268,7 @@ const AuditLogSchema = new Schema(
   baseOptions
 );
 
-// ================= WORKER DOCUMENT FILE (binary stored separately) =================
+// ================= WORKER DOCUMENT FILE (metadata; file itself is on disk) =================
 const WorkerFileSchema = new Schema(
   {
     id: idField, // same as document id
@@ -272,10 +276,26 @@ const WorkerFileSchema = new Schema(
     mimeType: { type: String, required: true },
     fileName: String,
     size: Number,
-    data: { type: Buffer, required: true },
+    filePath: String, // relative path under UPLOAD_ROOT/docs  (new: file on disk)
+    data: { type: Buffer }, // LEGACY only. Run migrate-photos.js to move to disk, then it is removed.
     createdAt: String,
   },
   { versionKey: false }
+);
+
+// ================= WORKING SHIFT (standard factory working times, admin editable) =================
+const WorkingShiftSchema = new Schema(
+  {
+    id: idField, // shift-1 / shift-2 / shift-3
+    order: { type: Number, index: true },
+    title: { type: String, required: true }, // "Working Time 1"
+    startTime24: { type: String, required: true }, // "09:00"
+    endTime24: { type: String, required: true }, // "17:00"  (= overtime trigger)
+    isActive: { type: Boolean, default: true },
+    updatedAt: String,
+    updatedBy: String,
+  },
+  baseOptions
 );
 
 // ================= COUNTER (ordering sequence) =================
@@ -292,6 +312,7 @@ export const AdvanceDeduction = model('AdvanceDeduction', AdvanceDeductionSchema
 export const AuditLog = model('AuditLog', AuditLogSchema);
 export const Counter = model('Counter', CounterSchema);
 export const WorkerFile = model('WorkerFile', WorkerFileSchema);
+export const WorkingShift = model('WorkingShift', WorkingShiftSchema);
 
 export async function nextSeq(name) {
   const c = await Counter.findByIdAndUpdate(name, { $inc: { value: 1 } }, { new: true, upsert: true });

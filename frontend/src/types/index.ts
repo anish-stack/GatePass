@@ -306,3 +306,22 @@ export interface CurrentUserSession {
   gate?: string;
   factory?: string;
 }
+/** Standard factory working time (stored in DB, admin editable). Derived fields come from the server. */
+export interface WorkingShift {
+  id: string;
+  order: number;
+  title: string; // "Working Time 1"
+  isActive: boolean;
+  label: string; // "09:00 AM – 05:00 PM"
+  startTime24: string;
+  endTime24: string;
+  startTime12: string;
+  endTime12: string;
+  normalWorkingMinutes: number;
+  normalWorkingHours: number;
+  overnight: boolean;
+  overtimeTrigger: string; // OT counts after this time
+  dutyTitle: string; // "8 Hours Duty"
+  updatedAt?: string;
+  updatedBy?: string;
+}

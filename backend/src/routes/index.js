@@ -7,6 +7,7 @@ import * as workers from '../controllers/worker.controller.js';
 import * as guards from '../controllers/guard.controller.js';
 import * as attendance from '../controllers/attendance.controller.js';
 import * as rules from '../controllers/rules.controller.js';
+import * as shifts from '../controllers/shift.controller.js';
 import * as payroll from '../controllers/payroll.controller.js';
 import * as advances from '../controllers/advance.controller.js';
 import * as reports from '../controllers/report.controller.js';
@@ -71,6 +72,10 @@ router.delete('/attendance/:id', ADMIN, attendance.remove);
 // Rules
 router.get('/rules', STAFF, rules.get);
 router.put('/rules', ADMIN, rules.update);
+
+// Standard working times (editable)
+router.get('/shifts', STAFF, shifts.list);
+router.put('/shifts/:id', ADMIN, shifts.update);
 
 // Payroll
 router.get('/payroll', ADMIN, payroll.list);

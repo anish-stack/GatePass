@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useShifts } from '../../hooks/useShifts';
 import {
   WORKING_TIME_OPTIONS,
   buildWorkingTimeLabel,
@@ -18,7 +19,9 @@ const CUSTOM = '__custom__';
 
 /** Preset shifts + fully custom start / end time. Value is always a "hh:mm AM – hh:mm PM" label. */
 export const WorkingTimePicker: React.FC<WorkingTimePickerProps> = ({ value, onChange, className = '' }) => {
-  const isPreset = WORKING_TIME_OPTIONS.some(o => o.label === value);
+  const { shifts } = useShifts();
+  const options = shifts.filter(s => s.isActive).length ? shifts.filter(s => s.isActive) : WORKING_TIME_OPTIONS;
+  const isPreset = options.some(o => o.label === value);
   const [custom, setCustom] = useState(!isPreset);
   const initial = splitWorkingTime(value) || { start24: '09:00', end24: '19:00' };
   const [start, setStart] = useState(initial.start24);
@@ -26,14 +29,14 @@ export const WorkingTimePicker: React.FC<WorkingTimePickerProps> = ({ value, onC
 
   // Sync when the parent loads another worker into the form
   useEffect(() => {
-    const preset = WORKING_TIME_OPTIONS.some(o => o.label === value);
+    const preset = options.some(o => o.label === value);
     setCustom(!preset);
     const parts = splitWorkingTime(value);
     if (parts) {
       setStart(parts.start24);
       setEnd(parts.end24);
     }
-  }, [value]);
+  }, [value, shifts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const label = buildWorkingTimeLabel(start, end);
   const error = custom ? validateWorkingTime(label || '') : null;
@@ -64,7 +67,7 @@ export const WorkingTimePicker: React.FC<WorkingTimePickerProps> = ({ value, onC
         }}
         className={inputCls}
       >
-        {WORKING_TIME_OPTIONS.map(o => (
+        {options.map(o => (
           <option key={o.label} value={o.label}>
             {o.label} ({o.normalWorkingHours} Hours)
           </option>

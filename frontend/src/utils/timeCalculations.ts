@@ -100,7 +100,7 @@ export function splitWorkingTime(label?: string): { start24: string; end24: stri
 export function getWorkingTimeDetails(workingTime?: string): WorkingTimeDetails {
   const p = parseWorkingTime(workingTime);
   if (!p || p.normalMinutes < MIN_SHIFT_MINUTES || p.normalMinutes > MAX_SHIFT_MINUTES) {
-    return { ...WORKING_TIME_OPTIONS[1], overnight: false }; // legacy fallback: 09:00 AM \u2013 07:00 PM
+    return { ...(WORKING_TIME_OPTIONS[1] ?? WORKING_TIME_OPTIONS[0]), overnight: false }; // legacy fallback: 09:00 AM \u2013 07:00 PM
   }
   return {
     label: `${minutesToLabel12(p.startMin)} \u2013 ${minutesToLabel12(p.endMin)}`,

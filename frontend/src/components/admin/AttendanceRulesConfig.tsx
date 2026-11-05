@@ -13,7 +13,111 @@ import {
 import { AttendanceRulesConfig } from '../../types';
 import { ApiService } from '../../services/api';
 import { DurationInput } from '../common/DurationInput';
-import { WORKING_TIME_OPTIONS } from '../../utils/timeCalculations';
+import { buildWorkingTimeLabel, getWorkingTimeDetails, validateWorkingTime } from '../../utils/timeCalculations';
+import { useShifts, setShifts } from '../../hooks/useShifts';
+import { WorkingShift } from '../../types';
+
+/** One editable standard working time. Start / end are editable; duration + overtime trigger are derived. */
+const ShiftCard: React.FC<{ shift: WorkingShift; allShifts: WorkingShift[]; onSaved: (list: WorkingShift[]) => void }> = ({
+  shift,
+  allShifts,
+  onSaved,
+}) => {
+  const [start, setStart] = useState(shift.startTime24);
+  const [end, setEnd] = useState(shift.endTime24);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  React.useEffect(() => {
+    setStart(shift.startTime24);
+    setEnd(shift.endTime24);
+  }, [shift.startTime24, shift.endTime24]);
+
+  const label = buildWorkingTimeLabel(start, end);
+  const error = label ? validateWorkingTime(label) : 'Enter start and end time.';
+  const d = !error && label ? getWorkingTimeDetails(label) : null;
+  const dirty = start !== shift.startTime24 || end !== shift.endTime24;
+
+  const save = async () => {
+    if (error || !d) return;
+    if (!window.confirm(`Change ${shift.title} to ${d.label}?\nAll workers on the current time will move to the new time. Old attendance records are not changed.`)) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await ApiService.updateShift(shift.id, { startTime24: start, endTime24: end });
+      onSaved(allShifts.map(x => (x.id === r.shift.id ? r.shift : x)));
+      setMsg(`Saved. ${r.workersMoved} worker(s) moved.`);
+      setTimeout(() => setMsg(''), 4000);
+    } catch (e: any) {
+      setMsg(e.message || 'Failed to save.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inp =
+    'w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-emerald-500 font-mono';
+  const show = d || shift;
+
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+      <div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{shift.title}</span>
+          <span className="text-xs font-mono bg-slate-900 text-sky-400 px-2 py-0.5 rounded border border-slate-800">
+            {show.normalWorkingHours} Hours Duty
+          </span>
+        </div>
+
+        <h4 className="font-bold text-white text-lg font-mono mt-2">{show.label}</h4>
+
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <div>
+            <label className="text-[10px] font-semibold text-slate-500 block mb-1">Start</label>
+            <input type="time" value={start} onChange={e => setStart(e.target.value)} className={inp} />
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold text-slate-500 block mb-1">End</label>
+            <input type="time" value={end} onChange={e => setEnd(e.target.value)} className={inp} />
+          </div>
+        </div>
+
+        <div className="mt-3 text-xs space-y-1.5 text-slate-300">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Working Start Time:</span>
+            <span className="font-semibold text-white font-mono">{show.startTime12}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Normal Duty End Time:</span>
+            <span className="font-semibold text-amber-400 font-mono">{show.endTime12}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Normal Working Duration:</span>
+            <span className="font-semibold text-white font-mono">{show.normalWorkingMinutes} Minutes</span>
+          </div>
+          <div className="flex justify-between pt-1 border-t border-slate-800/80">
+            <span className="text-slate-500">Overtime Trigger:</span>
+            <span className="font-semibold text-emerald-400">After {show.endTime12}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        {error && dirty && <p className="text-[11px] text-rose-400 mb-1">{error}</p>}
+        {msg && <p className="text-[11px] text-emerald-400 mb-1">{msg}</p>}
+        <button
+          type="button"
+          disabled={!dirty || !!error || busy}
+          onClick={save}
+          className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+        >
+          <Save className="w-3.5 h-3.5" />
+          <span>{busy ? 'Saving...' : 'Save Working Time'}</span>
+        </button>
+      </div>
+    </div>
+  );
+};
 
 interface AttendanceRulesConfigProps {
   onDataChanged: () => void;
@@ -31,6 +135,7 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
     checkInOpensBeforeMinutes: 120,
     allowCheckInAnytime: true,
   });
+  const { shifts } = useShifts();
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -84,50 +189,21 @@ export const AttendanceRulesConfigView: React.FC<AttendanceRulesConfigProps> = (
             <h3 className="font-bold text-white text-base">Standard Factory Working Times</h3>
           </div>
           <span className="text-xs font-mono text-emerald-400 bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded">
-            Assigned Directly in Worker Profile
+            Editable • Assigned in Worker Profile
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {WORKING_TIME_OPTIONS.map((timeOpt, idx) => (
-            <div
-              key={timeOpt.label}
-              className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Working Time {idx + 1}
-                  </span>
-                  <span className="text-xs font-mono bg-slate-900 text-sky-400 px-2 py-0.5 rounded border border-slate-800">
-                    {timeOpt.normalWorkingHours} Hours Duty
-                  </span>
-                </div>
-
-                <h4 className="font-bold text-white text-lg font-mono mt-2">
-                  {timeOpt.label}
-                </h4>
-
-                <div className="mt-3 text-xs space-y-1.5 text-slate-300">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Working Start Time:</span>
-                    <span className="font-semibold text-white font-mono">09:00 AM</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Normal Duty End Time:</span>
-                    <span className="font-semibold text-amber-400 font-mono">{timeOpt.endTime12}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Normal Working Duration:</span>
-                    <span className="font-semibold text-white font-mono">{timeOpt.normalWorkingMinutes} Minutes</span>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-slate-800/80">
-                    <span className="text-slate-500">Overtime Trigger:</span>
-                    <span className="font-semibold text-emerald-400">After {timeOpt.endTime12}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {shifts.map(sh => (
+            <ShiftCard
+              key={sh.id}
+              shift={sh}
+              onSaved={list => {
+                setShifts(list);
+                onDataChanged();
+              }}
+              allShifts={shifts}
+            />
           ))}
         </div>
       </div>

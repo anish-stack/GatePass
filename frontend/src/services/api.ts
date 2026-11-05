@@ -11,6 +11,7 @@ import {
   WorkerAdvanceSummary,
   CurrentUserSession,
   Role,
+  WorkingShift,
 } from '../types';
 import { getCurrentMonth, getTodayDateString } from '../utils/dateUtils';
 
@@ -260,6 +261,15 @@ export const ApiService = {
 
   updateRules(rules: AttendanceRulesConfig): Promise<AttendanceRulesConfig> {
     return fetchJson<AttendanceRulesConfig>('/rules', { method: 'PUT', body: JSON.stringify(rules) });
+  },
+
+  // ================= STANDARD WORKING TIMES =================
+  getShifts(): Promise<WorkingShift[]> {
+    return fetchJson<WorkingShift[]>('/shifts');
+  },
+
+  updateShift(id: string, body: { startTime24?: string; endTime24?: string; title?: string; isActive?: boolean }) {
+    return fetchJson<{ shift: WorkingShift; workersMoved: number }>(`/shifts/${id}`, { method: 'PUT', body: JSON.stringify(body) });
   },
 
   // ================= PAYROLL =================
